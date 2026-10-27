@@ -25,7 +25,7 @@ export default function Expenses({ user }: { user: User }) {
   const save = useMutation({
     mutationFn: () => postForPdf(`/expenses/save${editId ? `?expense_id=${editId}` : ""}`, { ...f, amount_ttc: ttc }),
     onSuccess: (r) => {
-      setDone(`✅ Note enregistrée – « ${r.filename} » téléchargé.`);
+      setDone(` Note enregistrée – « ${r.filename} » téléchargé.`);
       setEditId(null);
       setF(blank(user));
       qc.invalidateQueries({ queryKey: ["expenses"] });
@@ -58,7 +58,7 @@ export default function Expenses({ user }: { user: User }) {
               {[20, 10, 5.5, 2.1, 0].map((r) => <option key={r} value={r}>{r} %</option>)}
             </select>
           </Field>
-          <div className="flex items-end"><p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">HT : <b>{fmtMoney(ht)}</b> · TVA : <b>{fmtMoney(Math.round((ttc - ht) * 100) / 100)}</b></p></div>
+          <div className="flex items-end"><p className="rounded bg-slate-50 px-3 py-2 text-sm text-slate-600">HT : <b>{fmtMoney(ht)}</b> · TVA : <b>{fmtMoney(Math.round((ttc - ht) * 100) / 100)}</b></p></div>
           <Field label="Moyen de paiement">
             <select value={f.payment_method} onChange={(e) => set("payment_method", e.target.value)}>{PAYMENTS.map((c) => <option key={c}>{c}</option>)}</select>
           </Field>
@@ -66,10 +66,10 @@ export default function Expenses({ user }: { user: User }) {
           <Field label="Remarques"><input value={f.notes} onChange={(e) => set("notes", e.target.value)} /></Field>
           <div className="space-y-3 sm:col-span-2 lg:col-span-3">
             <ErrorMsg error={save.error} />
-            {done && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{done}</p>}
+            {done && <p className="rounded border border-emerald-700/30 px-3 py-2 text-sm text-emerald-800">{done}</p>}
             <div className="flex justify-end gap-2">
               {editId && <Button type="button" variant="ghost" onClick={() => { setEditId(null); setF(blank(user)); }}>Annuler la modification</Button>}
-              <Button type="submit" busy={save.isPending}>💾 Enregistrer et télécharger le PDF</Button>
+              <Button type="submit" busy={save.isPending}> Enregistrer et télécharger le PDF</Button>
             </div>
           </div>
         </form>

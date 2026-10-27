@@ -5,16 +5,16 @@ export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Bool
 type BtnProps = React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "ghost" | "danger" | "soft"; busy?: boolean };
 export function Button({ variant = "primary", busy, className, children, disabled, ...p }: BtnProps) {
   const styles = {
-    primary: "bg-brand-600 text-white hover:bg-brand-700 shadow-sm",
-    soft: "bg-brand-50 text-brand-700 hover:bg-brand-100",
-    ghost: "bg-white text-slate-700 border border-slate-300 hover:bg-slate-50",
-    danger: "bg-white text-red-600 border border-red-200 hover:bg-red-50",
+    primary: "bg-brand-600 text-white hover:bg-brand-700 border border-brand-700",
+    soft: "bg-white text-brand-700 border border-brand-600/40 hover:bg-brand-50",
+    ghost: "bg-transparent text-slate-700 border border-slate-300 hover:bg-slate-100",
+    danger: "bg-transparent text-red-700 border border-red-300 hover:bg-red-50",
   }[variant];
   return (
     <button
       {...p}
       disabled={disabled || busy}
-      className={cx("inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50", styles, className)}
+      className={cx("inline-flex items-center justify-center gap-2 rounded px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50", styles, className)}
     >
       {busy && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />}
       {children}
@@ -24,10 +24,10 @@ export function Button({ variant = "primary", busy, className, children, disable
 
 export function Card({ title, action, children, className }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={cx("rounded-xl border border-slate-200 bg-white shadow-sm", className)}>
+    <section className={cx("rounded-md border border-slate-200 bg-white", className)}>
       {(title || action) && (
-        <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-3.5">
-          <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+        <header className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{title}</h2>
           {action}
         </header>
       )}
@@ -38,9 +38,9 @@ export function Card({ title, action, children, className }: { title?: ReactNode
 
 export function PageHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: ReactNode }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-3 border-b border-slate-300 pb-4">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">{title}</h1>
+        <h1 className="font-serif text-[28px] font-semibold leading-tight text-slate-900">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-slate-500">{subtitle}</p>}
       </div>
       {action}
@@ -51,7 +51,7 @@ export function PageHeader({ title, subtitle, action }: { title: string; subtitl
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-medium text-slate-600">{label}</span>
+      <span className="mb-1 block text-xs font-medium text-slate-700">{label}</span>
       {children}
       {hint && <span className="mt-1 block text-xs text-slate-400">{hint}</span>}
     </label>
@@ -59,14 +59,14 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
 }
 
 const tones = {
-  green: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  red: "bg-red-50 text-red-700 ring-red-200",
-  amber: "bg-amber-50 text-amber-700 ring-amber-200",
-  blue: "bg-brand-50 text-brand-700 ring-brand-100",
-  slate: "bg-slate-100 text-slate-600 ring-slate-200",
+  green: "border-emerald-700/30 text-emerald-800",
+  red: "border-red-700/30 bg-red-50/60 text-red-800",
+  amber: "border-amber-700/30 bg-amber-50/60 text-amber-800",
+  blue: "border-brand-600/30 text-brand-700",
+  slate: "border-slate-300 text-slate-600",
 };
 export function Badge({ tone = "slate", children }: { tone?: keyof typeof tones; children: ReactNode }) {
-  return <span className={cx("inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", tones[tone])}>{children}</span>;
+  return <span className={cx("inline-flex items-center gap-1 rounded-sm border px-1.5 py-px text-xs font-medium", tones[tone])}>{children}</span>;
 }
 
 export function StatusDot({ status }: { status: string }) {
@@ -87,10 +87,10 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 pt-16" onMouseDown={onClose}>
-      <div className={cx("w-full rounded-xl bg-white shadow-xl", wide ? "max-w-2xl" : "max-w-lg")} onMouseDown={(e) => e.stopPropagation()}>
-        <header className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <h3 className="font-semibold text-slate-900">{title}</h3>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 pt-16" onMouseDown={onClose}>
+      <div className={cx("w-full rounded-md bg-white shadow-lg", wide ? "max-w-2xl" : "max-w-lg")} onMouseDown={(e) => e.stopPropagation()}>
+        <header className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5">
+          <h3 className="font-serif text-lg font-semibold text-slate-900">{title}</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-700" aria-label="Fermer">✕</button>
         </header>
         <div className="p-5">{children}</div>
@@ -100,12 +100,12 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
 }
 
 export function Empty({ children }: { children: ReactNode }) {
-  return <p className="rounded-lg border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">{children}</p>;
+  return <p className="rounded border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">{children}</p>;
 }
 
 export function ErrorMsg({ error }: { error: unknown }) {
   if (!error) return null;
-  return <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error instanceof Error ? error.message : String(error)}</p>;
+  return <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-700">{error instanceof Error ? error.message : String(error)}</p>;
 }
 
 export function Loading() {

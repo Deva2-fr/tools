@@ -12,7 +12,7 @@ export default function Access() {
   return (
     <ResourcePage
       title="Registre des accès"
-      subtitle="Qui a accès à quoi, et où se trouve le mot de passe. ⚠️ N'écrivez JAMAIS un mot de passe ici : indiquez seulement son emplacement (ex : « Bitwarden > Deva2 > OVH »)."
+      subtitle="Qui a accès à quoi, et où se trouve le mot de passe.  N'écrivez JAMAIS un mot de passe ici : indiquez seulement son emplacement (ex : « Bitwarden > Deva2 > OVH »)."
       endpoint="/access" newLabel="Nouvel accès" exportName="acces"
       initial={{ rotate_every_days: 365 }}
       empty="Listez vos accès critiques : hébergeur, registrar, GitHub, banque, Google Workspace…"

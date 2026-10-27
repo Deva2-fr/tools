@@ -53,9 +53,9 @@ export default function Taxes() {
     <>
       <PageHeader title="Impôts, TVA & déclarations" subtitle="Ne ratez plus une échéance : le Hub vous prévient avant chaque date limite."
         action={<div className="flex gap-2">
-          <a href="/api/taxes/calendar.ics"><Button variant="ghost" type="button">📆 Exporter vers mon agenda</Button></a>
+          <a href="/api/taxes/calendar.ics"><Button variant="ghost" type="button"> Exporter vers mon agenda</Button></a>
           <Button onClick={() => setEdit("new")}>+ Échéance</Button></div>} />
-      {msg && <p className="mb-4 rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-700">{msg}</p>}
+      {msg && <p className="mb-4 rounded bg-brand-50 px-3 py-2 text-sm text-brand-700">{msg}</p>}
       <ErrorMsg error={gen.error} />
       <Card title="Échéances" action={<label className="flex items-center gap-2 text-xs text-slate-500"><input type="checkbox" checked={showPaid} onChange={(e) => setShowPaid(e.target.checked)} /> Afficher les payées</label>}>
         {isLoading ? <Loading /> : rows.length === 0 ? (
@@ -76,7 +76,7 @@ export default function Taxes() {
                 </div>
                 <div className="flex items-center gap-3">
                   {t.status === "paid" ? <Badge tone="green">Payée</Badge> : <Badge tone={t.days_left < 0 ? "red" : t.days_left <= 7 ? "amber" : "slate"}>{t.days_left < 0 ? `En retard de ${-t.days_left} j` : t.days_left === 0 ? "Aujourd'hui" : `Dans ${t.days_left} j`}</Badge>}
-                  {t.status === "todo" && <Button variant="soft" onClick={() => paid.mutate(t.id)}>✔ C'est payé</Button>}
+                  {t.status === "todo" && <Button variant="soft" onClick={() => paid.mutate(t.id)}>✓ C'est payé</Button>}
                   <button className="text-xs text-brand-600" onClick={() => setEdit(t)}>Modifier</button>
                   <button className="text-xs text-red-600" onClick={() => confirm("Supprimer cette échéance ?") && del.mutate(t.id)}>Supprimer</button>
                 </div>

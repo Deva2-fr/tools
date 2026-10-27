@@ -29,9 +29,9 @@ export default function Pipeline() {
   return (
     <>
       <PageHeader title="Pipeline commercial" subtitle="Glissez les cartes d'une colonne à l'autre pour faire avancer vos affaires." action={<Button onClick={() => { save.reset(); setEdit("new"); }}>+ Nouvelle affaire</Button>} />
-      <div className="mb-5 grid grid-cols-3 gap-4">
+      <div className="mb-5 grid grid-cols-3 gap-px overflow-hidden rounded-md border border-slate-300 bg-slate-300">
         {[["En cours", fmtMoney(s.open_amount)], ["Prévision pondérée", fmtMoney(s.forecast)], ["Gagné", fmtMoney(s.won_amount)]].map(([l, v]) => (
-          <div key={l} className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-xs uppercase text-slate-400">{l}</p><p className="mt-1 text-xl font-bold">{v}</p></div>
+          <div key={l} className="bg-white p-4"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{l}</p><p className="mt-1 font-serif text-2xl">{v}</p></div>
         ))}
       </div>
       <ErrorMsg error={move.error} />
@@ -44,20 +44,20 @@ export default function Pipeline() {
               onDragOver={(e) => { e.preventDefault(); setOver(st.key); }}
               onDragLeave={() => setOver(null)}
               onDrop={() => { if (drag != null) move.mutate({ id: drag, stage: st.key }); setDrag(null); setOver(null); }}
-              className={cx("w-64 shrink-0 rounded-xl border-t-4 bg-slate-100/70 p-2 transition", st.tone, over === st.key && "bg-brand-50 ring-2 ring-brand-500")}
+              className={cx("w-64 shrink-0 rounded-md border-t-4 bg-slate-100/70 p-2 transition", st.tone, over === st.key && "bg-brand-50 ring-2 ring-brand-500")}
             >
               <div className="mb-2 flex items-center justify-between px-1 text-sm font-semibold"><span>{st.label}</span><Badge>{items.length}</Badge></div>
               <p className="mb-2 px-1 text-xs text-slate-400">{fmtMoney(s.stages[st.key]?.amount ?? 0)}</p>
               <div className="min-h-[120px] space-y-2">
                 {items.map((o) => (
                   <div key={o.id} draggable onDragStart={() => setDrag(o.id)} onDragEnd={() => setDrag(null)} onClick={() => { save.reset(); setEdit(o); }}
-                    className="cursor-grab rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-sm hover:border-brand-500 active:cursor-grabbing">
+                    className="cursor-grab rounded border border-slate-200 bg-white p-3 text-sm hover:border-brand-500 active:cursor-grabbing">
                     <p className="font-medium text-slate-900">{o.title}</p>
                     <p className="text-xs text-slate-500">{names[o.company_id] ?? "Sans société"}</p>
                     <div className="mt-2 flex items-center justify-between text-xs">
                       <b>{fmtMoney(o.amount)}</b><span className="text-slate-400">{o.probability}%</span>
                     </div>
-                    {o.expected_close && <p className="mt-1 text-xs text-slate-400">📅 {fmtDate(o.expected_close)}</p>}
+                    {o.expected_close && <p className="mt-1 text-xs text-slate-400"> {fmtDate(o.expected_close)}</p>}
                     {o.next_action && <p className="mt-1 truncate text-xs text-brand-600">→ {o.next_action}</p>}
                   </div>
                 ))}

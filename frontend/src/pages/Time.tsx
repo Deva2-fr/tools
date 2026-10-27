@@ -18,7 +18,7 @@ function Report() {
           <thead><tr className="border-b text-left text-xs uppercase text-slate-400"><th className="py-2">Client</th><th className="text-right">Heures</th><th className="text-right">Dont facturables</th><th className="text-right">Facturé HT</th><th className="text-right">Coût du temps</th><th className="text-right">Marge</th></tr></thead>
           <tbody className="divide-y divide-slate-100">{data.rows.map((r) => (
             <tr key={String(r.company_id)}><td className="py-2.5 font-medium">{r.company}</td><td className="text-right">{r.hours}</td><td className="text-right">{r.billable_hours}</td><td className="text-right">{fmtMoney(r.invoiced_ht)}</td><td className="text-right">{fmtMoney(r.cost)}</td>
-              <td className={cx("text-right font-bold", r.margin < 0 ? "text-red-600" : "text-emerald-600")}>{fmtMoney(r.margin)}</td></tr>))}</tbody></table></div>
+              <td className={cx("text-right font-bold", r.margin < 0 ? "text-red-600" : "text-emerald-800")}>{fmtMoney(r.margin)}</td></tr>))}</tbody></table></div>
       )}
       <p className="mt-3 text-xs text-slate-400">Coût du temps = heures × coût journalier du collaborateur ÷ 7 (renseigné dans Équipe, retrouvé via son e-mail).</p>
     </Card>
@@ -41,7 +41,7 @@ export default function Time({ user }: { user: User }) {
   return (
     <>
       <PageHeader title="Suivi du temps" subtitle="Notez le temps passé par client : le Hub en déduit votre rentabilité." />
-      {isManager(user) && <div className="mb-4 flex gap-2">{([["mine", "Saisie du mois"], ["report", "Rentabilité"]] as const).map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={cx("rounded-full px-4 py-1.5 text-sm font-medium", tab === k ? "bg-brand-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200")}>{l}</button>)}</div>}
+      {isManager(user) && <div className="mb-4 flex gap-2">{([["mine", "Saisie du mois"], ["report", "Rentabilité"]] as const).map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={cx("rounded px-3 py-1.5 text-sm font-medium", tab === k ? "bg-brand-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200")}>{l}</button>)}</div>}
       {tab === "report" ? <Report /> : (
         <>
           <Card className="mb-6">

@@ -31,11 +31,11 @@ export default function Tasks({ user }: { user: User }) {
       </Card>
       <div className="mb-4 flex gap-2">
         {([["todo", "À faire"], ["mine", "Mes tâches"], ["done", "Terminées"]] as const).map(([k, l]) => (
-          <button key={k} onClick={() => setFilter(k)} className={cx("rounded-full px-4 py-1.5 text-sm font-medium", filter === k ? "bg-brand-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200")}>{l}</button>
+          <button key={k} onClick={() => setFilter(k)} className={cx("rounded px-3 py-1.5 text-sm font-medium", filter === k ? "bg-brand-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200")}>{l}</button>
         ))}
       </div>
       <Card>
-        {list.isLoading ? <Loading /> : !rows.length ? <Empty>Rien à faire ici 🎉</Empty> : (
+        {list.isLoading ? <Loading /> : !rows.length ? <Empty>Rien à faire ici </Empty> : (
           <ul className="divide-y divide-slate-100">
             {rows.map((t) => (
               <li key={t.id} className="flex items-center gap-3 py-3 text-sm">

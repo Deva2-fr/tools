@@ -10,7 +10,7 @@ export const STAGES: { key: string; label: string; tone: string }[] = [
   { key: "contact", label: "Contact établi", tone: "border-sky-400" },
   { key: "quote", label: "Devis envoyé", tone: "border-amber-400" },
   { key: "negotiation", label: "Négociation", tone: "border-violet-400" },
-  { key: "won", label: "Gagné ✅", tone: "border-emerald-500" },
+  { key: "won", label: "Gagné ", tone: "border-emerald-500" },
   { key: "lost", label: "Perdu", tone: "border-red-300" },
 ];
 

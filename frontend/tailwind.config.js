@@ -1,10 +1,18 @@
+import colors from "tailwindcss/colors";
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
-      colors: { brand: { 50: "#eef4ff", 100: "#dbe7ff", 500: "#3b6cf5", 600: "#2a55d6", 700: "#2145ad" } },
-      fontFamily: { sans: ["Inter", "system-ui", "-apple-system", "Segoe UI", "sans-serif"] },
+      colors: {
+        slate: colors.stone, // gris chauds plutôt que bleutés
+        brand: { 50: "#edf3f0", 100: "#d6e5de", 500: "#2d7a66", 600: "#1f5f4f", 700: "#174a3d" },
+      },
+      fontFamily: {
+        sans: ["system-ui", "-apple-system", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", "sans-serif"],
+        serif: ["Charter", "Iowan Old Style", "Georgia", "Cambria", "Times New Roman", "serif"],
+      },
     },
   },
   plugins: [],

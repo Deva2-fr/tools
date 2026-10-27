@@ -46,7 +46,7 @@ export function Leaves({ user }: { user: User }) {
               {(manager || l.status === "pending") && <button className="text-xs text-red-500" onClick={() => confirm("Supprimer cette demande ?") && del.mutate(l.id)}>✕</button>}</span></li>))}</ul>}
         <ErrorMsg error={decide.error} />
       </Card>
-      {manager && bal.data && <Card title={`Soldes de congés payés ${new Date().getFullYear()}`} className="lg:col-span-2"><div className="grid gap-3 sm:grid-cols-3">{bal.data.map((b) => <div key={b.employee_id} className="rounded-lg border border-slate-200 p-3 text-sm"><b>{b.name}</b><p className="text-slate-500">{b.used} pris / {b.allowance} · <b className={b.left < 0 ? "text-red-600" : "text-emerald-600"}>{b.left} restants</b></p></div>)}</div></Card>}
+      {manager && bal.data && <Card title={`Soldes de congés payés ${new Date().getFullYear()}`} className="lg:col-span-2"><div className="grid gap-3 sm:grid-cols-3">{bal.data.map((b) => <div key={b.employee_id} className="rounded border border-slate-200 p-3 text-sm"><b>{b.name}</b><p className="text-slate-500">{b.used} pris / {b.allowance} · <b className={b.left < 0 ? "text-red-600" : "text-emerald-800"}>{b.left} restants</b></p></div>)}</div></Card>}
     </div>
   );
 }

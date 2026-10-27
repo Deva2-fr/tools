@@ -7,10 +7,10 @@ import { Badge, Button, Card, Empty, ErrorMsg, Loading, PageHeader, cx, fmtDateT
 interface Status { configured: boolean; connected: boolean; mailbox: string; redirect_uri: string }
 
 const TAGS: Record<string, { label: string; tone: "red" | "amber" | "green" | "slate" | "blue" }> = {
-  urgent: { label: "🔥 Urgent – à répondre", tone: "red" },
+  urgent: { label: " Urgent – à répondre", tone: "red" },
   a_repondre: { label: "↩ À répondre", tone: "amber" },
-  repondu: { label: "✔ Répondu", tone: "green" },
-  fait: { label: "✔ Traité", tone: "green" },
+  repondu: { label: "✓ Répondu", tone: "green" },
+  fait: { label: "✓ Traité", tone: "green" },
   ignore: { label: "Ignoré", tone: "slate" },
   info: { label: "Information", tone: "slate" },
 };
@@ -63,12 +63,12 @@ export default function MailPage({ user }: { user: User }) {
         <>
           <div className="mb-4 flex flex-wrap gap-2">
             {FILTERS.map(([k, label]) => (
-              <button key={k} onClick={() => { setFilter(k); setParams({}); }} className={cx("rounded-full px-4 py-1.5 text-sm font-medium transition", filter === k ? "bg-brand-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50")}>
+              <button key={k} onClick={() => { setFilter(k); setParams({}); }} className={cx("rounded px-3 py-1.5 text-sm font-medium transition", filter === k ? "bg-brand-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50")}>
                 {label}{k === "todo" && todo > 0 && <span className="ml-2 rounded-full bg-white/25 px-2 text-xs">{todo}</span>}
               </button>
             ))}
           </div>
-          {mails.isLoading ? <Loading /> : list.length === 0 ? <Empty>{filter === "todo" ? "Rien à répondre pour l'instant 🎉" : "Aucun mail."}</Empty> : (
+          {mails.isLoading ? <Loading /> : list.length === 0 ? <Empty>{filter === "todo" ? "Rien à répondre pour l'instant " : "Aucun mail."}</Empty> : (
             <div className="space-y-3">
               {list.map((m) => (
                 <Card key={m.id} className={m.is_read ? "" : "border-l-4 border-l-brand-500"}>

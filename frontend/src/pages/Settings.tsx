@@ -28,7 +28,7 @@ function IntegrationField({ f }: { f: IField }) {
     <Field label={f.label} hint={f.help}>
       <div className="flex gap-2">
         {f.multiline ? <textarea rows={3} {...common} className="font-mono text-xs" /> : <input type={f.secret ? "password" : "text"} {...common} />}
-        <Button variant="ghost" type="button" busy={save.isPending} disabled={f.secret && !v && !f.is_set} onClick={() => save.mutate()}>{saved ? "✔" : f.secret && !v && f.is_set ? "Effacer" : "OK"}</Button>
+        <Button variant="ghost" type="button" busy={save.isPending} disabled={f.secret && !v && !f.is_set} onClick={() => save.mutate()}>{saved ? "✓" : f.secret && !v && f.is_set ? "Effacer" : "OK"}</Button>
       </div>
     </Field>
   );
@@ -39,8 +39,8 @@ function Integrations() {
   const { data } = useQuery({ queryKey: ["integrations"], queryFn: () => api<IField[]>("/integrations") });
   const test = useMutation({
     mutationFn: (s: string) => api<{ message: string }>(`/integrations/test/${s}`, "POST"),
-    onSuccess: (r, s) => setResult((x) => ({ ...x, [s]: `✅ ${r.message}` })),
-    onError: (e, s) => setResult((x) => ({ ...x, [s]: `❌ ${e instanceof Error ? e.message : e}` })),
+    onSuccess: (r, s) => setResult((x) => ({ ...x, [s]: ` ${r.message}` })),
+    onError: (e, s) => setResult((x) => ({ ...x, [s]: ` ${e instanceof Error ? e.message : e}` })),
   });
   if (!data) return <Loading />;
   return (
@@ -67,7 +67,7 @@ function Security({ user }: { user: User }) {
   const start = useMutation({ mutationFn: () => api<{ secret: string; otpauth_uri: string }>("/auth/totp/setup", "POST"), onSuccess: setSetup });
   const enable = useMutation({ mutationFn: () => api("/auth/totp/enable", "POST", { code }), onSuccess: () => { setSetup(null); setCode(""); qc.invalidateQueries({ queryKey: ["me"] }); } });
   const disable = useMutation({ mutationFn: () => api("/auth/totp/disable", "POST", { code }), onSuccess: () => { setCode(""); qc.invalidateQueries({ queryKey: ["me"] }); } });
-  const change = useMutation({ mutationFn: () => api("/auth/password", "POST", pw), onSuccess: () => { setPwMsg("✅ Mot de passe modifié"); setPw({ current_password: "", new_password: "" }); }, onError: () => setPwMsg("") });
+  const change = useMutation({ mutationFn: () => api("/auth/password", "POST", pw), onSuccess: () => { setPwMsg(" Mot de passe modifié"); setPw({ current_password: "", new_password: "" }); }, onError: () => setPwMsg("") });
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       <Card title="Double authentification (2FA)" action={user.totp_enabled ? <Badge tone="green">Activée</Badge> : <Badge tone="amber">Non activée</Badge>}>
@@ -81,7 +81,7 @@ function Security({ user }: { user: User }) {
         ) : setup ? (
           <div className="space-y-3 text-sm">
             <p>1. Scannez ce QR code avec Google Authenticator, Authy ou 1Password.</p>
-            <div className="inline-block rounded-lg border p-3"><QRCodeSVG value={setup.otpauth_uri} size={160} /></div>
+            <div className="inline-block rounded border p-3"><QRCodeSVG value={setup.otpauth_uri} size={160} /></div>
             <p className="break-all text-xs text-slate-400">Ou saisissez la clé : {setup.secret}</p>
             <p>2. Entrez le code à 6 chiffres affiché :</p>
             <input inputMode="numeric" maxLength={6} placeholder="000000" value={code} onChange={(e) => setCode(e.target.value)} />

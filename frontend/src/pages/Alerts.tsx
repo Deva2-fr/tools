@@ -38,7 +38,7 @@ function ChannelModal({ channel, onClose }: { channel?: Channel; onClose: () => 
             {Object.entries(CHANNEL_TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
         </Field>
-        <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">{t.help}</p>
+        <p className="rounded bg-slate-50 p-3 text-xs text-slate-500">{t.help}</p>
         {t.fields.map((f) => (
           <Field key={f.key} label={f.label} hint={channel?.config_keys.includes(f.key) ? "Déjà enregistré – laissez vide pour le conserver" : undefined}>
             <input type={f.secret ? "password" : "text"} autoComplete="off" placeholder={f.placeholder} required={!channel} value={config[f.key] ?? ""} onChange={(e) => setConfig({ ...config, [f.key]: e.target.value })} />
@@ -65,8 +65,8 @@ function Channels() {
   const del = useMutation({ mutationFn: (id: number) => api(`/channels/${id}`, "DELETE"), onSuccess: () => qc.invalidateQueries({ queryKey: ["channels"] }) });
   const test = useMutation({
     mutationFn: (id: number) => api(`/channels/${id}/test`, "POST"),
-    onSuccess: () => setMsg("✅ Message de test envoyé"),
-    onError: (e) => setMsg(`❌ ${e instanceof Error ? e.message : e}`),
+    onSuccess: () => setMsg(" Message de test envoyé"),
+    onError: (e) => setMsg(` ${e instanceof Error ? e.message : e}`),
   });
   return (
     <Card title="Où recevoir les alertes ?" action={<Button variant="soft" onClick={() => setEdit("new")}>+ Canal</Button>}>
@@ -108,7 +108,7 @@ export default function Alerts({ user }: { user: User }) {
         <Card title="Alertes" action={<div className="flex items-center gap-3">
           <label className="flex items-center gap-2 text-xs text-slate-500"><input type="checkbox" checked={onlyOpen} onChange={(e) => setOnlyOpen(e.target.checked)} /> Seulement les non traitées</label>
           <Button variant="ghost" onClick={() => ackAll.mutate()}>Tout marquer comme lu</Button></div>}>
-          {alerts.isLoading ? <Loading /> : !alerts.data?.length ? <Empty>Aucune alerte 🎉</Empty> : (
+          {alerts.isLoading ? <Loading /> : !alerts.data?.length ? <Empty>Aucune alerte </Empty> : (
             <ul className="divide-y divide-slate-100">
               {alerts.data.map((a) => (
                 <li key={a.id} className={`py-3 ${a.acknowledged ? "opacity-50" : ""}`}>

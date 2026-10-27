@@ -23,8 +23,8 @@ export function CsvImportButton({ endpoint, extra, hint, label = "Importer un CS
             <textarea rows={6} className="font-mono text-xs" placeholder="…ou collez le contenu ici" value={text} onChange={(e) => setText(e.target.value)} />
             <ErrorMsg error={run.error} />
             {run.data && (
-              <div className="rounded-lg bg-emerald-50 p-3 text-emerald-800">
-                ✅ {run.data.created} ligne(s) importée(s).
+              <div className="rounded bg-emerald-50 p-3 text-emerald-800">
+                 {run.data.created} ligne(s) importée(s).
                 {run.data.errors.length > 0 && <ul className="mt-2 list-disc pl-5 text-amber-700">{run.data.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
               </div>
             )}

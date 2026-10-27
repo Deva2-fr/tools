@@ -27,23 +27,23 @@ import Pipeline from "./pages/crm/Pipeline";
 import Tasks from "./pages/crm/Tasks";
 import { Loading, cx } from "./ui";
 
-interface NavItem { to: string; label: string; icon: string; end?: boolean; manager?: boolean }
+interface NavItem { to: string; label: string; end?: boolean; manager?: boolean }
 const SECTIONS: { title: string; items: NavItem[] }[] = [
-  { title: "", items: [{ to: "/", label: "Tableau de bord", icon: "🏠", end: true }] },
+  { title: "", items: [{ to: "/", label: "Tableau de bord", end: true }] },
   { title: "Commercial", items: [
-    { to: "/crm/societes", label: "Sociétés", icon: "🏢" }, { to: "/crm/contacts", label: "Contacts", icon: "👤" },
-    { to: "/crm/pipeline", label: "Pipeline", icon: "🎯" }, { to: "/crm/taches", label: "Tâches", icon: "✅" },
-    { to: "/mails", label: "Mails Outlook", icon: "✉️" } ] },
+    { to: "/crm/societes", label: "Sociétés" }, { to: "/crm/contacts", label: "Contacts" },
+    { to: "/crm/pipeline", label: "Pipeline" }, { to: "/crm/taches", label: "Tâches" },
+    { to: "/mails", label: "Mails Outlook" } ] },
   { title: "Finances", items: [
-    { to: "/facturation", label: "Devis & factures", icon: "💶", manager: true }, { to: "/tresorerie", label: "Trésorerie", icon: "🏦", manager: true },
-    { to: "/abonnements", label: "Abonnements & contrats", icon: "🔄", manager: true }, { to: "/notes-de-frais", label: "Notes de frais", icon: "🧾" },
-    { to: "/impots", label: "Impôts & TVA", icon: "📅" } ] },
+    { to: "/facturation", label: "Devis & factures", manager: true }, { to: "/tresorerie", label: "Trésorerie", manager: true },
+    { to: "/abonnements", label: "Abonnements & contrats", manager: true }, { to: "/notes-de-frais", label: "Notes de frais" },
+    { to: "/impots", label: "Impôts & TVA" } ] },
   { title: "Équipe", items: [
-    { to: "/temps", label: "Suivi du temps", icon: "⏱️" }, { to: "/equipe", label: "Congés", icon: "🏖️" },
-    { to: "/equipe/collaborateurs", label: "Collaborateurs", icon: "👥", manager: true }, { to: "/documents", label: "Documents", icon: "🗂️", manager: true },
-    { to: "/acces", label: "Registre des accès", icon: "🔑", manager: true } ] },
-  { title: "Infrastructure", items: [{ to: "/projets", label: "Projets & serveurs", icon: "🌐" }, { to: "/alertes", label: "Alertes & sécurité", icon: "🚨" }] },
-  { title: "", items: [{ to: "/parametres", label: "Paramètres", icon: "⚙️" }] },
+    { to: "/temps", label: "Suivi du temps" }, { to: "/equipe", label: "Congés" },
+    { to: "/equipe/collaborateurs", label: "Collaborateurs", manager: true }, { to: "/documents", label: "Documents", manager: true },
+    { to: "/acces", label: "Registre des accès", manager: true } ] },
+  { title: "Infrastructure", items: [{ to: "/projets", label: "Projets & serveurs" }, { to: "/alertes", label: "Alertes & sécurité" }] },
+  { title: "", items: [{ to: "/parametres", label: "Paramètres" }] },
 ];
 
 function SearchPalette({ user, onClose }: { user: User; onClose: () => void }) {
@@ -64,10 +64,10 @@ function SearchPalette({ user, onClose }: { user: User; onClose: () => void }) {
   const go = (to: string) => { nav(to); onClose(); };
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center bg-slate-900/40 p-4 pt-24" onMouseDown={onClose}>
-      <div className="w-full max-w-xl overflow-hidden rounded-xl bg-white shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-xl overflow-hidden rounded-md bg-white shadow-lg" onMouseDown={(e) => e.stopPropagation()}>
         <input autoFocus placeholder="Rechercher une société, un contact, une page…" className="!rounded-none !border-0 !border-b !py-4 !text-base !shadow-none" value={q} onChange={(e) => setQ(e.target.value)} />
         <ul className="max-h-80 overflow-y-auto py-1 text-sm">
-          {pages.map((p) => <li key={p.to}><button className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-brand-50" onClick={() => go(p.to)}><span>{p.icon}</span>{p.label}<span className="ml-auto text-xs text-slate-400">Page</span></button></li>)}
+          {pages.map((p) => <li key={p.to}><button className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-brand-50" onClick={() => go(p.to)}>{p.label}<span className="ml-auto text-xs text-slate-400">Page</span></button></li>)}
           {hits.map((h, i) => <li key={i}><button className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left hover:bg-brand-50" onClick={() => go(h.to)}><span><b>{h.label}</b> <span className="text-slate-400">{h.sub}</span></span><span className="text-xs text-slate-400">{h.type}</span></button></li>)}
           {q.length >= 2 && !pages.length && !hits.length && <li className="px-4 py-6 text-center text-slate-400">Aucun résultat</li>}
           {!q && <li className="px-4 py-6 text-center text-slate-400">Tapez pour chercher. <kbd className="rounded bg-slate-100 px-1.5">Échap</kbd> pour fermer.</li>}
@@ -96,32 +96,32 @@ function Shell() {
 
   return (
     <div className="flex min-h-screen">
-      <aside className="sticky top-0 flex h-screen w-64 shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white">
-        <div className="flex items-center gap-3 px-5 py-5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">D2</span>
-          <div><p className="font-semibold leading-tight text-slate-900">Deva2 Hub</p><p className="text-xs text-slate-400">CRM & outils internes</p></div>
+      <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col overflow-y-auto bg-[#1d2421] text-stone-300">
+        <div className="px-5 pb-4 pt-6">
+          <p className="font-serif text-xl font-semibold tracking-tight text-stone-50">Deva2</p>
+          <p className="text-xs text-stone-500">Gestion & outils internes</p>
         </div>
-        <button onClick={() => setSearching(true)} className="mx-3 mb-2 flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-400 hover:border-brand-500">
-          <span>🔍 Rechercher…</span><kbd className="rounded bg-slate-100 px-1.5 text-xs">⌘K</kbd>
+        <button onClick={() => setSearching(true)} className="mx-3 mb-3 flex items-center justify-between rounded border border-stone-700 px-3 py-1.5 text-sm text-stone-400 hover:border-stone-500">
+          <span>Rechercher…</span><kbd className="rounded bg-stone-800 px-1.5 text-xs text-stone-400">⌘K</kbd>
         </button>
-        <nav className="flex-1 space-y-4 px-3 pb-4">
+        <nav className="flex-1 space-y-5 px-3 pb-4">
           {SECTIONS.map((sec, i) => {
             const items = sec.items.filter((n) => !n.manager || mgr);
             return items.length ? (
               <div key={i}>
-                {sec.title && <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">{sec.title}</p>}
+                {sec.title && <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-stone-500">{sec.title}</p>}
                 <div className="space-y-0.5">{items.map((n) => (
-                  <NavLink key={n.to} to={n.to} end={n.end ?? n.to === "/equipe"} className={({ isActive }) => cx("flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition", isActive ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:bg-slate-50")}><span>{n.icon}</span>{n.label}</NavLink>))}</div>
+                  <NavLink key={n.to} to={n.to} end={n.end ?? n.to === "/equipe"} className={({ isActive }) => cx("block border-l-2 px-3 py-1.5 text-sm transition", isActive ? "border-emerald-400 bg-white/5 font-medium text-white" : "border-transparent text-stone-400 hover:text-stone-100")}>{n.label}</NavLink>))}</div>
               </div>) : null;
           })}
         </nav>
-        <div className="border-t border-slate-100 p-4 text-sm">
-          <p className="truncate font-medium text-slate-800">{user.name || user.email}</p>
-          <p className="truncate text-xs text-slate-400">{user.email} · {user.role === "admin" ? "Admin" : user.role === "manager" ? "Manager" : "Membre"}</p>
-          <button onClick={logout} className="mt-2 text-xs font-medium text-slate-500 hover:text-red-600">Se déconnecter</button>
+        <div className="border-t border-stone-800 p-4 text-sm">
+          <p className="truncate font-medium text-stone-100">{user.name || user.email}</p>
+          <p className="truncate text-xs text-stone-500">{user.email} · {user.role === "admin" ? "Admin" : user.role === "manager" ? "Manager" : "Membre"}</p>
+          <button onClick={logout} className="mt-2 text-xs font-medium text-stone-400 hover:text-white">Se déconnecter</button>
         </div>
       </aside>
-      <main className="min-w-0 flex-1 p-8">
+      <main className="min-w-0 flex-1 px-10 py-8">
         <div className="mx-auto max-w-6xl">
           <Routes>
             <Route path="/" element={<Dashboard user={user} />} />

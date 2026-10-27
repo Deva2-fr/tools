@@ -73,14 +73,14 @@ export default function BillingEditor() {
         subtitle={d ? undefined : "Remplissez puis enregistrez : vous pourrez ensuite l'émettre (un numéro lui sera attribué)."}
         action={d && <div className="flex flex-wrap items-center gap-2">
           <Badge tone={d.is_overdue ? "red" : STATUS[d.status]?.[1]}>{d.is_overdue ? "En retard" : STATUS[d.status]?.[0]}</Badge>
-          <Button variant="ghost" busy={pdf.isPending} onClick={() => pdf.mutate()}>📄 PDF</Button>
+          <Button variant="ghost" busy={pdf.isPending} onClick={() => pdf.mutate()}> PDF</Button>
           {d.kind === "quote" && ["sent", "accepted"].includes(d.status) && <Button variant="soft" busy={convert.isPending} onClick={() => convert.mutate()}>→ Transformer en facture</Button>}
-          {d.kind === "quote" && d.status === "sent" && <><Button variant="soft" onClick={() => accept.mutate()}>✔ Accepté</Button><Button variant="ghost" onClick={() => refuse.mutate()}>Refusé</Button></>}
+          {d.kind === "quote" && d.status === "sent" && <><Button variant="soft" onClick={() => accept.mutate()}>✓ Accepté</Button><Button variant="ghost" onClick={() => refuse.mutate()}>Refusé</Button></>}
           {d.kind === "invoice" && d.status === "sent" && !d.amount_paid && <Button variant="danger" onClick={() => confirm("Annuler cette facture ? Son numéro reste utilisé.") && cancel.mutate()}>Annuler la facture</Button>}
           {d.status === "draft" && <Button variant="danger" onClick={() => confirm("Supprimer ce brouillon ?") && del.mutate()}>Supprimer</Button>}
         </div>} />
       {d?.source_quote_id && <p className="mb-3 text-sm text-slate-500">Issue du <Link className="text-brand-600" to={`/facturation/${d.source_quote_id}`}>devis n°{d.source_quote_id}</Link></p>}
-      {!editable && <p className="mb-4 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-600">🔒 Ce document est émis : il n'est plus modifiable (obligation légale). Pour corriger, annulez-le et créez-en un nouveau.</p>}
+      {!editable && <p className="mb-4 rounded bg-slate-100 px-3 py-2 text-sm text-slate-600"> Ce document est émis : il n'est plus modifiable (obligation légale). Pour corriger, annulez-le et créez-en un nouveau.</p>}
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <div className="space-y-6">
           <Card title="Informations">
@@ -119,15 +119,15 @@ export default function BillingEditor() {
           <ErrorMsg error={errors} />
           {editable && (
             <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="ghost" busy={save.isPending} onClick={() => save.mutate()}>💾 Enregistrer le brouillon</Button>
-              {!isNew && d?.status === "draft" && <Button busy={issue.isPending} onClick={() => confirm(`Émettre ce ${label.toLowerCase()} ? Un numéro définitif lui sera attribué et il ne sera plus modifiable.`) && issue.mutate()}>✅ Émettre</Button>}
+              <Button variant="ghost" busy={save.isPending} onClick={() => save.mutate()}> Enregistrer le brouillon</Button>
+              {!isNew && d?.status === "draft" && <Button busy={issue.isPending} onClick={() => confirm(`Émettre ce ${label.toLowerCase()} ? Un numéro définitif lui sera attribué et il ne sera plus modifiable.`) && issue.mutate()}> Émettre</Button>}
             </div>
           )}
         </div>
         <div className="space-y-6">
           {d && d.kind === "invoice" && ["sent", "paid"].includes(d.status) && (
             <Card title="Paiements">
-              <p className="mb-3 text-sm">Reste à payer : <b className={d.remaining ? "text-amber-600" : "text-emerald-600"}>{fmtMoney(d.remaining)}</b></p>
+              <p className="mb-3 text-sm">Reste à payer : <b className={d.remaining ? "text-amber-600" : "text-emerald-800"}>{fmtMoney(d.remaining)}</b></p>
               <ul className="mb-3 space-y-1 text-sm">{d.payments.map((p: Row) => <li key={p.id} className="flex justify-between"><span>{fmtDate(p.paid_on)} · {p.method}</span><span>{fmtMoney(p.amount)} <button className="ml-1 text-xs text-red-500" onClick={() => delPay.mutate(p.id)}>✕</button></span></li>)}</ul>
               {d.remaining > 0 && (
                 <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); addPay.mutate(); }}>

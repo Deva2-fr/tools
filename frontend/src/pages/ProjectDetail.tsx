@@ -30,7 +30,7 @@ function ServerModal({ projectId, server, onClose }: { projectId: number; server
         {input("location", "Localisation", "Gravelines (FR)")}
         <div className="sm:col-span-2">{input("specs", "Ressources", "2 vCPU / 4 Go RAM / 80 Go SSD")}</div>
         <div className="sm:col-span-2">
-          <Field label="Comment y accéder" hint="⚠️ Ne jamais écrire de mot de passe ici : indiquez seulement le principe (ex : SSH par clé, utilisateur deploy).">
+          <Field label="Comment y accéder" hint=" Ne jamais écrire de mot de passe ici : indiquez seulement le principe (ex : SSH par clé, utilisateur deploy).">
             <textarea rows={2} value={f.access_info} onChange={(e) => set("access_info", e.target.value)} />
           </Field>
         </div>
@@ -77,7 +77,7 @@ function Sparkline({ checks }: { checks: Check[] }) {
   return (
     <div>
       <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="h-24 w-full">
-        <polyline points={pts} fill="none" stroke="#2a55d6" strokeWidth="0.8" vectorEffect="non-scaling-stroke" />
+        <polyline points={pts} fill="none" stroke="#1f5f4f" strokeWidth="0.8" vectorEffect="non-scaling-stroke" />
       </svg>
       <div className="mt-1 flex h-2 gap-px">
         {checks.slice(-60).map((c, i) => <span key={i} title={`${fmtDateTime(c.ts)} – ${c.ok ? "OK" : c.error}`} className={`flex-1 rounded-sm ${c.ok ? "bg-emerald-400" : "bg-red-500"}`} />)}
@@ -137,7 +137,7 @@ export default function ProjectDetail() {
             <div className="flex justify-between"><dt className="text-slate-500">Dépôt</dt><dd>{p.repo_url ? <a className="text-brand-600" href={p.repo_url} target="_blank" rel="noreferrer noopener">ouvrir</a> : "—"}</dd></div>
           </dl>
           {p.missing_headers.length > 0 && (
-            <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+            <div className="mt-4 rounded bg-amber-50 p-3 text-sm text-amber-800">
               <p className="font-medium">En-têtes de sécurité manquants</p>
               <p className="mt-1">{p.missing_headers.join(", ")}</p>
             </div>
@@ -147,7 +147,7 @@ export default function ProjectDetail() {
           {p.servers.length === 0 ? <Empty>Aucun serveur renseigné. Ajoutez l'hébergeur, l'IP, le système…</Empty> : (
             <div className="grid gap-4 md:grid-cols-2">
               {p.servers.map((s) => (
-                <div key={s.id} className="rounded-lg border border-slate-200 p-4 text-sm">
+                <div key={s.id} className="rounded border border-slate-200 p-4 text-sm">
                   <div className="flex justify-between"><p className="font-semibold">{s.label || s.hostname || "Serveur"}</p>
                     <span className="space-x-3 text-xs"><button className="text-brand-600" onClick={() => setServer(s)}>Modifier</button><button className="text-red-600" onClick={() => confirm("Supprimer ce serveur ?") && delServer.mutate(s.id)}>Supprimer</button></span></div>
                   <dl className="mt-2 grid grid-cols-[100px_1fr] gap-y-1 text-slate-600">
@@ -180,7 +180,7 @@ export default function ProjectDetail() {
           )}
         </Card>
         <Card title="Failles de sécurité détectées" className="lg:col-span-2">
-          {!vulns.data?.length ? <Empty>Aucune faille connue détectée 👍</Empty> : (
+          {!vulns.data?.length ? <Empty>Aucune faille connue détectée </Empty> : (
             <ul className="divide-y divide-slate-100">
               {vulns.data.map((v) => (
                 <li key={v.id} className="py-3 text-sm">

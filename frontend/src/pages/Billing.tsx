@@ -40,31 +40,31 @@ export default function Billing() {
           <Button variant="soft" onClick={() => nav("/facturation/nouveau?kind=quote")}>+ Devis</Button>
           <Button onClick={() => nav("/facturation/nouveau?kind=invoice")}>+ Facture</Button></div>} />
       {s && (
-        <div className="mb-6 grid gap-4 lg:grid-cols-[1fr_1fr_1fr_1fr_1.4fr]">
-          {([["Facturé " + s.year + " (HT)", fmtMoney(s.invoiced_ht), ""], ["Encaissé " + s.year, fmtMoney(s.collected), "text-emerald-600"], ["Reste à encaisser", fmtMoney(s.outstanding), s.outstanding ? "text-amber-600" : ""],
-            [`En retard (${s.overdue_count})`, fmtMoney(s.overdue), s.overdue ? "text-red-600" : ""]] as const).map(([l, v, tone]) => (
-            <div key={l} className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-xs uppercase text-slate-400">{l}</p><p className={cx("mt-1 text-xl font-bold", tone)}>{v}</p></div>
+        <div className="mb-6 grid gap-px overflow-hidden rounded-md border border-slate-300 bg-slate-300 lg:grid-cols-[1fr_1fr_1fr_1fr_1.5fr]">
+          {([["Facturé " + s.year + " (HT)", fmtMoney(s.invoiced_ht), ""], ["Encaissé " + s.year, fmtMoney(s.collected), "text-emerald-800"], ["Reste à encaisser", fmtMoney(s.outstanding), s.outstanding ? "text-amber-700" : ""],
+            [`En retard (${s.overdue_count})`, fmtMoney(s.overdue), s.overdue ? "text-red-700" : ""]] as const).map(([l, v, tone]) => (
+            <div key={l} className="bg-white p-4"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{l}</p><p className={cx("mt-2 font-serif text-2xl", tone)}>{v}</p></div>
           ))}
-          <div className="rounded-xl border border-slate-200 bg-white p-4"><p className="mb-2 text-xs uppercase text-slate-400">CA mensuel HT · {s.open_quotes_count} devis en attente ({fmtMoney(s.open_quotes_amount)})</p><Bars values={s.monthly_ht} /></div>
+          <div className="bg-white p-4"><p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">CA mensuel HT · {s.open_quotes_count} devis en attente ({fmtMoney(s.open_quotes_amount)})</p><Bars values={s.monthly_ht} /></div>
         </div>
       )}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         {([["all", "Tous"], ["quote", "Devis"], ["invoice", "Factures"], ["overdue", "En retard"]] as const).map(([k, l]) => (
-          <button key={k} onClick={() => setTab(k)} className={cx("rounded-full px-4 py-1.5 text-sm font-medium", tab === k ? "bg-brand-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200")}>{l}</button>
+          <button key={k} onClick={() => setTab(k)} className={cx("rounded px-3 py-1.5 text-sm font-medium", tab === k ? "bg-brand-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200")}>{l}</button>
         ))}
         <div className="ml-auto w-60"><input placeholder="N° ou objet…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
       </div>
       <Card>
         {list.isLoading ? <Loading /> : !list.data?.length ? <Empty>Aucun document.</Empty> : (
           <div className="overflow-x-auto"><table className="w-full text-sm">
-            <thead><tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-400"><th className="py-2">Numéro</th><th>Type</th><th>Client</th><th>Date</th><th>Échéance</th><th className="text-right">Total TTC</th><th className="text-right">Reste</th><th>Statut</th></tr></thead>
+            <thead><tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-400"><th className="py-2">Numéro</th><th>Type</th><th>Client</th><th>Date</th><th>Échéance</th><th className="text-right">Total TTC</th><th className="text-right">Reste</th><th className="pl-4">Statut</th></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {list.data.map((d) => (
                 <tr key={d.id} className="hover:bg-slate-50">
                   <td className="py-2.5"><Link className="font-medium text-brand-600" to={`/facturation/${d.id}`}>{d.number ?? "Brouillon"}</Link>{d.title && <span className="block text-xs text-slate-400">{d.title}</span>}</td>
                   <td>{d.kind === "quote" ? "Devis" : "Facture"}</td><td>{d.company_name || "—"}</td><td>{fmtDate(d.issue_date)}</td><td>{fmtDate(d.due_date)}</td>
                   <td className="text-right font-medium">{fmtMoney(d.total_ttc)}</td><td className="text-right">{d.remaining ? fmtMoney(d.remaining) : "—"}</td>
-                  <td>{d.is_overdue ? <Badge tone="red">En retard</Badge> : <Badge tone={STATUS[d.status]?.[1]}>{STATUS[d.status]?.[0] ?? d.status}</Badge>}</td>
+                  <td className="pl-4">{d.is_overdue ? <Badge tone="red">En retard</Badge> : <Badge tone={STATUS[d.status]?.[1]}>{STATUS[d.status]?.[0] ?? d.status}</Badge>}</td>
                 </tr>
               ))}
             </tbody></table></div>

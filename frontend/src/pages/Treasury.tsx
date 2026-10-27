@@ -25,7 +25,7 @@ function Chart({ series }: { series: Forecast["series"] }) {
     <div>
       <svg viewBox="0 0 100 52" preserveAspectRatio="none" className="h-40 w-full">
         <line x1="0" x2="100" y1={zeroY} y2={zeroY} stroke="#fca5a5" strokeDasharray="2 2" strokeWidth="0.4" vectorEffect="non-scaling-stroke" />
-        <polyline points={pts} fill="none" stroke="#2a55d6" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
+        <polyline points={pts} fill="none" stroke="#1f5f4f" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
       </svg>
       <div className="flex justify-between text-xs text-slate-400"><span>{fmtDate(series[0].date)}</span><span>{fmtDate(series[series.length - 1].date)}</span></div>
     </div>
@@ -59,11 +59,11 @@ export default function Treasury() {
               <div><p className="text-xs text-slate-400">Dans {days} j</p><p className="text-lg font-bold">{fmtMoney(f.end_balance)}</p></div>
             </div>
             <Chart series={f.series} />
-            {f.lowest < 0 && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">⚠️ Le solde prévu passe en négatif : relancez vos factures ou décalez des dépenses.</p>}
+            {f.lowest < 0 && <p className="mt-3 rounded bg-red-50 px-3 py-2 text-sm text-red-700"> Le solde prévu passe en négatif : relancez vos factures ou décalez des dépenses.</p>}
           </Card>
           <Card title="Prochains mouvements prévus">
             {!f.events.length ? <Empty>Rien de prévu.</Empty> : <ul className="max-h-72 divide-y divide-slate-100 overflow-y-auto text-sm">{f.events.map((e, i) => (
-              <li key={i} className="flex items-center justify-between gap-2 py-2"><span><span className="block">{e.label}</span><span className="text-xs text-slate-400">{fmtDate(e.date)} · {TYPE[e.type]}</span></span><b className={e.amount < 0 ? "text-red-600" : "text-emerald-600"}>{fmtMoney(e.amount)}</b></li>))}</ul>}
+              <li key={i} className="flex items-center justify-between gap-2 py-2"><span><span className="block">{e.label}</span><span className="text-xs text-slate-400">{fmtDate(e.date)} · {TYPE[e.type]}</span></span><b className={e.amount < 0 ? "text-red-600" : "text-emerald-800"}>{fmtMoney(e.amount)}</b></li>))}</ul>}
           </Card>
         </div>
       )}
@@ -74,7 +74,7 @@ export default function Treasury() {
         <ErrorMsg error={delTx.error ?? delAcc.error} />
         {!accs.length ? <Empty>Commencez par ajouter un compte bancaire (avec son solde actuel).</Empty> : !txs.data?.length ? <Empty>Aucun mouvement. Ajoutez-en un ou importez le CSV de votre banque.</Empty> : (
           <table className="w-full text-sm"><tbody className="divide-y divide-slate-100">
-            {txs.data.map((t) => <tr key={t.id}><td className="py-2 pr-3 text-slate-400">{fmtDate(t.tx_date)}</td><td className="pr-3">{t.label} {t.category && <Badge>{t.category}</Badge>}</td><td className={cx("text-right font-medium", t.amount < 0 ? "text-red-600" : "text-emerald-600")}>{fmtMoney(t.amount)}</td><td className="w-8 text-right"><button className="text-xs text-red-500" onClick={() => delTx.mutate(t.id)}>✕</button></td></tr>)}
+            {txs.data.map((t) => <tr key={t.id}><td className="py-2 pr-3 text-slate-400">{fmtDate(t.tx_date)}</td><td className="pr-3">{t.label} {t.category && <Badge>{t.category}</Badge>}</td><td className={cx("text-right font-medium", t.amount < 0 ? "text-red-600" : "text-emerald-800")}>{fmtMoney(t.amount)}</td><td className="w-8 text-right"><button className="text-xs text-red-500" onClick={() => delTx.mutate(t.id)}>✕</button></td></tr>)}
           </tbody></table>
         )}
       </Card>

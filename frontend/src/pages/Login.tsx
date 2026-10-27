@@ -26,27 +26,35 @@ export default function Login() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-brand-50 to-slate-100 p-4">
-      <form onSubmit={submit} className="w-full max-w-sm space-y-4 rounded-2xl bg-white p-8 shadow-xl">
-        <div className="text-center">
-          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-brand-600 font-bold text-white">D2</span>
-          <h1 className="mt-4 text-xl font-bold text-slate-900">Deva2 Hub</h1>
-          <p className="text-sm text-slate-500">Connectez-vous pour continuer</p>
+    <div className="grid min-h-screen md:grid-cols-[1fr_440px]">
+      <div className="hidden flex-col justify-between bg-[#1d2421] p-12 text-stone-300 md:flex">
+        <p className="font-serif text-2xl font-semibold text-stone-50">Deva2</p>
+        <div>
+          <p className="max-w-sm font-serif text-3xl leading-snug text-stone-50">Clients, facturation, équipe et infrastructure au même endroit.</p>
+          <p className="mt-4 text-sm text-stone-500">Accès réservé à l'équipe.</p>
         </div>
-        <Field label="E-mail">
-          <input type="email" required autoFocus autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} />
-        </Field>
-        <Field label="Mot de passe">
-          <input type="password" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
-        </Field>
-        {needTotp && (
-          <Field label="Code à 6 chiffres" hint="Ouvrez votre application d'authentification (Google Authenticator, Authy…)">
-            <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} required autoFocus value={totp} onChange={(e) => setTotp(e.target.value)} />
+        <p className="text-xs text-stone-600">deva2.fr</p>
+      </div>
+      <div className="flex items-center justify-center p-8">
+        <form onSubmit={submit} className="w-full max-w-xs space-y-4">
+          <div>
+            <h1 className="font-serif text-2xl font-semibold text-slate-900">Connexion</h1>
+          </div>
+          <Field label="Adresse e-mail">
+            <input type="email" required autoFocus autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} />
           </Field>
-        )}
-        <ErrorMsg error={error} />
-        <Button type="submit" busy={busy} className="w-full">Se connecter</Button>
-      </form>
+          <Field label="Mot de passe">
+            <input type="password" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          </Field>
+          {needTotp && (
+            <Field label="Code à 6 chiffres" hint="Affiché par votre application d'authentification.">
+              <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} required autoFocus value={totp} onChange={(e) => setTotp(e.target.value)} />
+            </Field>
+          )}
+          <ErrorMsg error={error} />
+          <Button type="submit" busy={busy} className="w-full">Se connecter</Button>
+        </form>
+      </div>
     </div>
   );
 }

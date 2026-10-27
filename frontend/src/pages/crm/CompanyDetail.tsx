@@ -12,7 +12,7 @@ interface Overview {
   money_visible: boolean; invoiced: number | null; outstanding: number | null;
 }
 type Modal = null | "company" | "contact" | "opp" | "task";
-const ACT: Record<string, string> = { note: "📝", call: "📞", meeting: "🤝", email: "✉️" };
+const ACT: Record<string, string> = { note: "", call: "", meeting: "", email: "" };
 const DOC_STATUS: Record<string, string> = { draft: "Brouillon", sent: "Émis", accepted: "Accepté", refused: "Refusé", paid: "Payée", cancelled: "Annulée" };
 
 export default function CompanyDetail() {
@@ -80,7 +80,7 @@ export default function CompanyDetail() {
         )}
         <Card title="Journal d'activité" className="lg:col-span-2">
           <form className="mb-4 grid gap-3 sm:grid-cols-[140px_1fr_auto]" onSubmit={(e) => { e.preventDefault(); if (act.subject.trim()) addAct.mutate(); }}>
-            <select value={act.kind} onChange={(e) => setAct({ ...act, kind: e.target.value })}><option value="note">📝 Note</option><option value="call">📞 Appel</option><option value="meeting">🤝 Rendez-vous</option><option value="email">✉️ E-mail</option></select>
+            <select value={act.kind} onChange={(e) => setAct({ ...act, kind: e.target.value })}><option value="note"> Note</option><option value="call"> Appel</option><option value="meeting"> Rendez-vous</option><option value="email"> E-mail</option></select>
             <input placeholder="Ce qui s'est passé…" value={act.subject} onChange={(e) => setAct({ ...act, subject: e.target.value })} />
             <Button type="submit" busy={addAct.isPending}>Ajouter</Button>
           </form>
@@ -97,7 +97,7 @@ export default function CompanyDetail() {
             <li key={m.id} className="flex items-center justify-between py-2.5"><span><b>{m.subject || "(sans objet)"}</b> <span className="text-slate-400">· {m.sender} · {fmtDateTime(m.received_at)}</span></span>
               <span className="flex items-center gap-3">{(m.tag === "a_repondre" || m.tag === "urgent") && <Badge tone="amber">À répondre</Badge>}{m.web_link && <a className="text-xs text-brand-600" href={m.web_link} target="_blank" rel="noreferrer noopener">Ouvrir ↗</a>}</span></li>))}</ul>}
         </Card>
-        {!!d.files.length && <Card title="Documents" className="lg:col-span-2"><ul className="text-sm">{d.files.map((f) => <li key={f.id}>📎 {f.name} <Badge>{f.category}</Badge></li>)}</ul></Card>}
+        {!!d.files.length && <Card title="Documents" className="lg:col-span-2"><ul className="text-sm">{d.files.map((f) => <li key={f.id}> {f.name} <Badge>{f.category}</Badge></li>)}</ul></Card>}
       </div>
       {modal === "company" && <FormModal title="Modifier la société" fields={companyFields} initial={c} onClose={() => setModal(null)} onSubmit={(b) => saveCompany.mutate(b)} busy={saveCompany.isPending} error={saveCompany.error} />}
       {modal === "contact" && <FormModal title="Nouveau contact" fields={contactFields} initial={defaults(contactFields, base)} onClose={() => setModal(null)} onSubmit={(b) => addContact.mutate(b)} busy={addContact.isPending} error={addContact.error} />}
