@@ -1,0 +1,71 @@
+name: CI
+
+# Contrôles automatiques : lint + tests (backend), typage + build (frontend), validation des fichiers Docker Compose.
+# Lancé à chaque push sur une branche ; sur main et sur les pull requests, c'est deploy.yml qui l'appelle
+# (le déploiement attend cette CI) : pas de double exécution.
+on:
+  push:
+    branches-ignore: [main]
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (lint + tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: ruff format --check .
+      # Les tests appliquent les vraies migrations Alembic sur une base SQLite temporaire
+      - run: python -m pytest -q
+
+  frontend:
+    name: Frontend (typage + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      # Compilation de production : détecte les erreurs que le typage seul ne voit pas
+      - run: npm run build
+
+  compose:
+    name: Docker Compose (validation)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Valider les fichiers Compose avec un .env factice
+        run: |
+          cp .env.example .env
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.prod.yml config -q
+      - name: Vérifier qu'aucun port public 80/443 n'est publié en production
+        run: |
+          if docker compose -f docker-compose.prod.yml config | grep -E 'published: "?(80|443)"?$'; then
+            echo "::error::docker-compose.prod.yml ne doit pas publier les ports 80/443 (déjà utilisés sur le serveur)"
+            exit 1
+          fi

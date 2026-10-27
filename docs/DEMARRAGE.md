@@ -209,6 +209,8 @@ git pull && docker compose up -d --build   # mettre à jour
 
 ## 8. Mettre le Hub sur un vrai serveur (pour qu'il tourne 24 h/24)
 
+> **Déploiement automatisé (GitHub Actions, merge sur `main`) : suivez plutôt [`DEPLOIEMENT.md`](DEPLOIEMENT.md).** Les étapes ci-dessous décrivent l'installation manuelle.
+
 1. Louez un petit serveur Linux (2 Go de RAM suffisent) chez OVH, Hetzner, Scaleway…
 2. Chez votre registrar, créez un enregistrement DNS **A** : `hub.deva2.fr` → IP du serveur.
 3. Sur le serveur : installez Docker, ouvrez les ports **80** et **443**, clonez le projet.

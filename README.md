@@ -17,6 +17,8 @@ Tout est modifiable depuis l'interface (ajout/modification/suppression partout).
 
 ## Démarrage rapide
 
+> **Mise en production (CI/CD, merge sur `main`) : [docs/DEPLOIEMENT.md](docs/DEPLOIEMENT.md).**
+>
 > **Première fois ? Suivez le guide pas à pas : [docs/DEMARRAGE.md](docs/DEMARRAGE.md)** (installation sur votre poste, tout ce qu'il faut remplir, dépannage).
 
 ```bash
