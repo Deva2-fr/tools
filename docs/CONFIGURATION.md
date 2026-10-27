@@ -124,6 +124,34 @@ La recherche se fait par mot-clé : vérifiez toujours que votre version est con
 
 ---
 
+## 8. Ma société (pour les devis et factures)
+
+**Paramètres → Intégrations → Ma société** : raison sociale, forme juridique et capital, SIRET, n° de TVA intracommunautaire, adresse, e-mail, téléphone, IBAN/BIC, délai de paiement par défaut (30 jours) et mentions légales éventuelles (ex. « TVA non applicable, art. 293 B du CGI » si vous êtes en franchise). Ces informations sont imprimées sur chaque PDF : **complétez-les avant d'émettre votre première facture.**
+
+Le PDF contient déjà les mentions obligatoires usuelles (pénalités de retard, indemnité forfaitaire de 40 €). Faites valider le modèle par votre expert-comptable.
+
+**Comment marche la facturation ?**
+1. *Devis & factures → + Devis* : choisissez le client, ajoutez des lignes (le total se calcule seul, TVA par taux). Enregistrez : c'est un **brouillon** modifiable, sans numéro.
+2. **Émettre** : le numéro définitif est attribué (`DEV-2026-0001`, `FAC-2026-0001`…, sans trou, par année). Une facture émise **ne peut plus être modifiée** (obligation légale) : pour corriger, on l'annule et on en crée une nouvelle.
+3. Devis accepté → **Transformer en facture** (les lignes sont recopiées).
+4. Encaissement → **Enregistrer le paiement** (paiements partiels possibles) : la facture passe « Payée » quand le solde est à zéro.
+5. Impayé : le Hub alerte à J-3 de l'échéance, puis à J+1, J+7, J+15, J+30… sur vos canaux d'alerte.
+
+## 9. Utilisateurs et rôles
+
+**Paramètres → Utilisateurs → + Utilisateur.** *Membre* : CRM, tâches, saisie de son temps, demande de congés, notes de frais. *Manager* : en plus, devis/factures, trésorerie, abonnements, équipe, documents, accès. *Administrateur* : en plus, réglages, intégrations et utilisateurs.
+Pour qu'un membre puisse poser des congés, créez sa fiche dans **Équipe → Collaborateurs** avec **le même e-mail que son compte**.
+
+## 10. Page de statut publique
+
+Cochez « Afficher sur la page de statut publique » dans un projet : `https://<votre-domaine>/statut` montre alors, sans connexion, son nom et son état (rien d'autre : ni lien, ni serveur, ni note).
+
+## 11. Mise à jour depuis la v1
+
+Rien à faire : au démarrage, la base existante est reconnue et migrée automatiquement (Alembic). **Faites tout de même une sauvegarde du volume `pgdata` avant `make up`.**
+
+---
+
 ## Dépannage rapide
 
 | Symptôme | Cause probable |
@@ -132,4 +160,6 @@ La recherche se fait par mot-clé : vérifiez toujours que votre version est con
 | « Microsoft a refusé la connexion » | L'URI de redirection ne correspond pas **exactement** à celle affichée dans le Hub |
 | « Modèle introuvable » (Google) | Le Doc n'est pas partagé avec l'e-mail du compte de service |
 | Aucune alerte reçue | Aucun canal créé, ou seuil trop haut ; utilisez « Envoyer un test » |
+| « Aucune fiche collaborateur à votre e-mail » (congés) | Créez le collaborateur dans Équipe → Collaborateurs avec le même e-mail que son compte |
+| Le PDF de facture affiche « Votre société » | Complétez Paramètres → Intégrations → Ma société |
 | Un site de dev apparaît « Hors ligne » | Il renvoie 401/403 : renseignez le *code HTTP attendu* |

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { api } from "../api";
-import { Badge, Card, Empty, Loading, PageHeader, StatusDot, fmtDate } from "../ui";
+import { User, api } from "../api";
+import { Badge, Card, Empty, Loading, PageHeader, StatusDot, fmtDate, fmtMoney } from "../ui";
 
 interface Dash {
   projects: { total: number; up: number; down: number; items: { id: number; name: string; url: string; status: string; latency_ms: number | null }[] };
@@ -9,6 +9,9 @@ interface Dash {
   alerts: { id: number; title: string; severity: "info" | "warning" | "critical"; created_at: string }[];
   vulnerabilities_open: number;
   mails_to_reply: number;
+  tasks: { id: number; title: string; due_date: string | null; late: boolean }[];
+  pipeline: { open_count: number; forecast: number };
+  finance: null | { invoiced_ht: number; outstanding: number; overdue: number; balance: number; renewals: { id: number; name: string; date: string; cost: number }[]; leaves_pending: number };
   taxes_upcoming: { id: number; title: string; due_date: string; days_left: number; amount: number | null }[];
 }
 
@@ -21,7 +24,7 @@ function Stat({ label, value, tone, to }: { label: string; value: number | strin
   );
 }
 
-export default function Dashboard() {
+export default function Dashboard({ user }: { user: User }) {
   const { data, isLoading } = useQuery({ queryKey: ["dashboard"], queryFn: () => api<Dash>("/dashboard"), refetchInterval: 30_000 });
   if (isLoading || !data) return <Loading />;
   return (
@@ -33,7 +36,34 @@ export default function Dashboard() {
         <Stat label="Failles à traiter" value={data.vulnerabilities_open} tone={data.vulnerabilities_open ? "text-red-600" : "text-slate-900"} to="/alertes" />
         <Stat label="Mails à répondre" value={data.mails_to_reply} tone={data.mails_to_reply ? "text-brand-600" : "text-slate-900"} to="/mails" />
       </div>
+      {data.finance && (
+        <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <Stat label="Facturé cette année (HT)" value={fmtMoney(data.finance.invoiced_ht)} tone="text-slate-900" to="/facturation" />
+          <Stat label="Reste à encaisser" value={fmtMoney(data.finance.outstanding)} tone={data.finance.overdue ? "text-red-600" : "text-amber-600"} to="/facturation" />
+          <Stat label="Trésorerie" value={fmtMoney(data.finance.balance)} tone={data.finance.balance < 0 ? "text-red-600" : "text-emerald-600"} to="/tresorerie" />
+          <Stat label="Pipeline pondéré" value={fmtMoney(data.pipeline.forecast)} tone="text-brand-600" to="/crm/pipeline" />
+        </div>
+      )}
       <div className="grid gap-6 lg:grid-cols-2">
+        <Card title="Mes tâches" action={<Link to="/crm/taches" className="text-xs text-brand-600">Tout voir</Link>}>
+          {data.tasks.length === 0 ? <Empty>Aucune tâche en attente ✅</Empty> : (
+            <ul className="divide-y divide-slate-100">
+              {data.tasks.map((t) => (
+                <li key={t.id} className="flex items-center justify-between py-2.5 text-sm"><span>{t.title}</span>{t.due_date && <Badge tone={t.late ? "red" : "slate"}>{fmtDate(t.due_date)}</Badge>}</li>
+              ))}
+            </ul>
+          )}
+        </Card>
+        {data.finance ? (
+          <Card title="Renouvellements à venir (30 j)" action={<Link to="/abonnements" className="text-xs text-brand-600">Tout voir</Link>}>
+            {data.finance.renewals.length === 0 ? <Empty>Aucun renouvellement proche.</Empty> : (
+              <ul className="divide-y divide-slate-100">
+                {data.finance.renewals.map((r) => <li key={r.id} className="flex items-center justify-between py-2.5 text-sm"><span>{r.name}</span><span className="text-slate-500">{fmtDate(r.date)} · {fmtMoney(r.cost)}</span></li>)}
+              </ul>
+            )}
+            {data.finance.leaves_pending > 0 && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">🏖️ {data.finance.leaves_pending} demande(s) de congés à valider · <Link className="underline" to="/equipe">Voir</Link></p>}
+          </Card>
+        ) : <Card title="Bienvenue"><p className="text-sm text-slate-500">Bonjour {user.name || user.email} 👋 Retrouvez vos tâches, vos contacts et vos mails à répondre depuis le menu.</p></Card>}
         <Card title="Mes sites">
           {data.projects.items.length === 0 ? (
             <Empty>Aucun projet. <Link to="/projets" className="text-brand-600 underline">Ajoutez-en un</Link>.</Empty>

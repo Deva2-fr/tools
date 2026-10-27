@@ -27,6 +27,35 @@ async function errorText(res: Response): Promise<string> {
   return `Erreur ${res.status}`;
 }
 
+export async function apiUpload<T = unknown>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(`/api${path}`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "X-Requested-With": "deva2" },
+    body: form,
+  });
+  if (!res.ok) throw new ApiError(res.status, await errorText(res));
+  return res.json();
+}
+
+/** Télécharge un fichier protégé (CSV, PDF…) en envoyant l'en-tête de sécurité. */
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  const res = await fetch(`/api${path}`, { credentials: "same-origin", headers: { "X-Requested-With": "deva2" } });
+  if (!res.ok) throw new ApiError(res.status, await errorText(res));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(await res.blob());
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/** Ouvre un PDF protégé dans un nouvel onglet. */
+export async function openPdf(path: string): Promise<void> {
+  const res = await fetch(`/api${path}`, { credentials: "same-origin", headers: { "X-Requested-With": "deva2" } });
+  if (!res.ok) throw new ApiError(res.status, await errorText(res));
+  window.open(URL.createObjectURL(await res.blob()), "_blank", "noopener");
+}
+
 /** Envoie un formulaire et télécharge le PDF renvoyé. */
 export async function postForPdf(path: string, body: unknown): Promise<{ id: number; filename: string }> {
   const res = await fetch(`/api${path}`, {
@@ -47,12 +76,15 @@ export async function postForPdf(path: string, body: unknown): Promise<{ id: num
 }
 
 // ---------- types ----------
-export interface User { id: number; email: string; name: string; role: "admin" | "member"; totp_enabled: boolean }
+export interface User { id: number; email: string; name: string; role: "admin" | "manager" | "member"; totp_enabled: boolean }
+export const isManager = (u: User) => u.role === "admin" || u.role === "manager";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type Row = Record<string, any> & { id: number };
 export interface Server { id: number; project_id: number; label: string; provider: string; hostname: string; ip: string; os: string; location: string; specs: string; access_info: string; notes: string }
 export interface Tech { id: number; project_id: number; name: string; version: string; category: string; watch_cve: boolean; last_scanned_at: string | null }
 export interface Project {
   id: number; name: string; url: string; description: string; environment: "prod" | "staging" | "dev";
-  repo_url: string; monitoring_tools: string; notes: string; monitoring_enabled: boolean; check_interval_min: number;
+  repo_url: string; monitoring_tools: string; notes: string; monitoring_enabled: boolean; public_status: boolean; check_interval_min: number;
   expected_status: number | null; status: "up" | "down" | "unknown"; last_checked_at: string | null;
   last_latency_ms: number | null; ssl_expires_at: string | null; missing_headers: string[];
   servers: Server[]; technologies: Tech[]; open_vulnerabilities: number;

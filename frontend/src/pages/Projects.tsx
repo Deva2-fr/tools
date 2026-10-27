@@ -6,7 +6,7 @@ import { Badge, Button, Card, Empty, ErrorMsg, Field, Loading, Modal, PageHeader
 
 export const emptyProject = {
   name: "", url: "", description: "", environment: "prod", repo_url: "", monitoring_tools: "", notes: "",
-  monitoring_enabled: true, check_interval_min: 5, expected_status: null as number | null,
+  monitoring_enabled: true, public_status: false, check_interval_min: 5, expected_status: null as number | null,
 };
 export type ProjectForm = typeof emptyProject;
 
@@ -37,6 +37,9 @@ export function ProjectFormModal({ initial, id, onClose }: { initial: ProjectFor
         </Field>
         <label className="flex items-center gap-2 text-sm sm:col-span-2">
           <input type="checkbox" checked={f.monitoring_enabled} onChange={(e) => set("monitoring_enabled", e.target.checked)} /> Surveiller ce site automatiquement
+        </label>
+        <label className="flex items-center gap-2 text-sm sm:col-span-2">
+          <input type="checkbox" checked={f.public_status} onChange={(e) => set("public_status", e.target.checked)} /> Afficher sur la page de statut publique (<code>/statut</code> : seulement le nom et l'état)
         </label>
         <div className="sm:col-span-2"><ErrorMsg error={save.error} /></div>
         <div className="flex justify-end gap-2 sm:col-span-2">

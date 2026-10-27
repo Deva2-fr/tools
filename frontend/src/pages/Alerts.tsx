@@ -4,7 +4,7 @@ import { Alert, Channel, User, Vuln, api } from "../api";
 import { Badge, Button, Card, Empty, ErrorMsg, Field, Loading, Modal, PageHeader, fmtDateTime } from "../ui";
 
 const SEV = { critical: ["red", "Critique"], warning: ["amber", "Attention"], info: ["blue", "Info"] } as const;
-const KIND: Record<string, string> = { down: "Site down", recovered: "Rétabli", ssl: "Certificat SSL", attack: "Attaque / anomalie", vuln: "Faille de sécurité", tax: "Échéance" };
+const KIND: Record<string, string> = { down: "Site down", recovered: "Rétabli", ssl: "Certificat SSL", attack: "Attaque / anomalie", vuln: "Faille de sécurité", tax: "Échéance", invoice: "Facture", renewal: "Renouvellement", digest: "Résumé du jour", leave: "Congés" };
 
 const CHANNEL_TYPES: Record<string, { label: string; fields: { key: string; label: string; placeholder?: string; secret?: boolean }[]; help: string }> = {
   email: { label: "E-mail", help: "Nécessite la configuration SMTP (Paramètres > Intégrations).", fields: [{ key: "to", label: "Adresse(s) destinataire(s)", placeholder: "alertes@deva2.fr" }] },

@@ -200,7 +200,7 @@ export default function ProjectDetail() {
           )}
         </Card>
       </div>
-      {editing && <ProjectFormModal id={p.id} initial={{ name: p.name, url: p.url, description: p.description, environment: p.environment, repo_url: p.repo_url, monitoring_tools: p.monitoring_tools, notes: p.notes, monitoring_enabled: p.monitoring_enabled, check_interval_min: p.check_interval_min, expected_status: p.expected_status }} onClose={() => setEditing(false)} />}
+      {editing && <ProjectFormModal id={p.id} initial={{ name: p.name, url: p.url, description: p.description, environment: p.environment, repo_url: p.repo_url, monitoring_tools: p.monitoring_tools, notes: p.notes, monitoring_enabled: p.monitoring_enabled, public_status: p.public_status, check_interval_min: p.check_interval_min, expected_status: p.expected_status }} onClose={() => setEditing(false)} />}
       {server && <ServerModal projectId={p.id} server={server === "new" ? undefined : server} onClose={() => setServer(null)} />}
       {tech && <TechModal projectId={p.id} tech={tech === "new" ? undefined : tech} onClose={() => setTech(null)} />}
     </>

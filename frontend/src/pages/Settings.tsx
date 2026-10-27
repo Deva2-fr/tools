@@ -5,6 +5,7 @@ import { Field as IField, User, api } from "../api";
 import { Badge, Button, Card, ErrorMsg, Field, Loading, Modal, PageHeader, fmtDateTime } from "../ui";
 
 const GROUPS: Record<string, { title: string; test?: string; intro: string }> = {
+  company: { title: "Ma société (devis & factures)", intro: "Ces informations apparaissent sur vos PDF de devis et factures. Pensez à les compléter avant d'émettre votre première facture. Guide : section 8." },
   outlook: { title: "Outlook (Microsoft 365)", test: "outlook", intro: "Pour lire les mails. Guide : docs/CONFIGURATION.md, section 3." },
   google: { title: "Google (notes de frais en PDF)", test: "google", intro: "Pour remplir le modèle Google Doc et en faire un PDF. Guide : section 4." },
   email: { title: "E-mail d'envoi des alertes (SMTP)", test: "smtp", intro: "Pour recevoir les alertes par e-mail. Guide : section 5." },
@@ -120,7 +121,7 @@ function Users({ me }: { me: User }) {
           {users.data?.map((u) => (
             <li key={u.id} className="flex items-center justify-between py-2.5 text-sm">
               <span>{u.name || u.email} <span className="text-slate-400">{u.email}</span></span>
-              <span className="flex items-center gap-3"><Badge tone={u.role === "admin" ? "blue" : "slate"}>{u.role === "admin" ? "Admin" : "Membre"}</Badge>{u.totp_enabled && <Badge tone="green">2FA</Badge>}
+              <span className="flex items-center gap-3"><Badge tone={u.role === "admin" ? "blue" : u.role === "manager" ? "amber" : "slate"}>{u.role === "admin" ? "Admin" : u.role === "manager" ? "Manager" : "Membre"}</Badge>{u.totp_enabled && <Badge tone="green">2FA</Badge>}
                 {u.id !== me.id && <button className="text-xs text-red-600" onClick={() => confirm(`Supprimer ${u.email} ?`) && del.mutate(u.id)}>Supprimer</button>}</span>
             </li>
           ))}
@@ -139,7 +140,7 @@ function Users({ me }: { me: User }) {
             <Field label="E-mail"><input type="email" required value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></Field>
             <Field label="Nom"><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
             <Field label="Mot de passe provisoire" hint="12 caractères minimum"><input type="password" minLength={12} required value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></Field>
-            <Field label="Rôle"><select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}><option value="member">Membre (pas d'accès aux réglages)</option><option value="admin">Administrateur</option></select></Field>
+            <Field label="Rôle"><select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}><option value="member">Membre (CRM, tâches, temps, congés)</option><option value="manager">Manager (+ finances, équipe, documents)</option><option value="admin">Administrateur (+ réglages, utilisateurs)</option></select></Field>
             <ErrorMsg error={create.error} />
             <div className="flex justify-end"><Button type="submit" busy={create.isPending}>Créer</Button></div>
           </form>

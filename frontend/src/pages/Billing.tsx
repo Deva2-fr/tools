@@ -1,0 +1,75 @@
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Row, api, downloadFile } from "../api";
+import { Badge, Button, Card, Empty, Loading, PageHeader, cx, fmtDate, fmtMoney } from "../ui";
+
+export const STATUS: Record<string, [string, "slate" | "blue" | "green" | "red" | "amber"]> = {
+  draft: ["Brouillon", "slate"], sent: ["Émis", "blue"], accepted: ["Accepté", "green"], refused: ["Refusé", "red"], paid: ["Payée", "green"], cancelled: ["Annulée", "red"],
+};
+interface Sum { year: number; invoiced_ht: number; collected: number; outstanding: number; overdue: number; overdue_count: number; open_quotes_amount: number; open_quotes_count: number; monthly_ht: number[] }
+
+function Bars({ values }: { values: number[] }) {
+  const max = Math.max(...values, 1);
+  const months = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+  return (
+    <div className="flex h-24 items-end gap-1.5">
+      {values.map((v, i) => (
+        <div key={i} className="flex flex-1 flex-col items-center gap-1" title={`${months[i]} : ${fmtMoney(v)}`}>
+          <div className="w-full rounded-t bg-brand-500/80" style={{ height: `${Math.max((v / max) * 100, v > 0 ? 4 : 0)}%` }} />
+          <span className="text-[10px] text-slate-400">{months[i]}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function Billing() {
+  const nav = useNavigate();
+  const [tab, setTab] = useState("all");
+  const [q, setQ] = useState("");
+  const params = tab === "quote" ? "kind=quote" : tab === "invoice" ? "kind=invoice" : tab === "overdue" ? "status=overdue" : "";
+  const list = useQuery({ queryKey: ["billing", tab, q], queryFn: () => api<Row[]>(`/billing?${params}&q=${encodeURIComponent(q)}`) });
+  const sum = useQuery({ queryKey: ["billing-sum"], queryFn: () => api<Sum>("/billing/summary") });
+  const s = sum.data;
+  return (
+    <>
+      <PageHeader title="Devis & factures" subtitle="Créez, émettez et suivez vos devis et factures. Numérotation continue automatique, PDF prêt à envoyer."
+        action={<div className="flex gap-2">
+          <Button variant="ghost" onClick={() => downloadFile("/billing/export/csv", "devis-factures.csv")}>Export comptable (CSV)</Button>
+          <Button variant="soft" onClick={() => nav("/facturation/nouveau?kind=quote")}>+ Devis</Button>
+          <Button onClick={() => nav("/facturation/nouveau?kind=invoice")}>+ Facture</Button></div>} />
+      {s && (
+        <div className="mb-6 grid gap-4 lg:grid-cols-[1fr_1fr_1fr_1fr_1.4fr]">
+          {([["Facturé " + s.year + " (HT)", fmtMoney(s.invoiced_ht), ""], ["Encaissé " + s.year, fmtMoney(s.collected), "text-emerald-600"], ["Reste à encaisser", fmtMoney(s.outstanding), s.outstanding ? "text-amber-600" : ""],
+            [`En retard (${s.overdue_count})`, fmtMoney(s.overdue), s.overdue ? "text-red-600" : ""]] as const).map(([l, v, tone]) => (
+            <div key={l} className="rounded-xl border border-slate-200 bg-white p-4"><p className="text-xs uppercase text-slate-400">{l}</p><p className={cx("mt-1 text-xl font-bold", tone)}>{v}</p></div>
+          ))}
+          <div className="rounded-xl border border-slate-200 bg-white p-4"><p className="mb-2 text-xs uppercase text-slate-400">CA mensuel HT · {s.open_quotes_count} devis en attente ({fmtMoney(s.open_quotes_amount)})</p><Bars values={s.monthly_ht} /></div>
+        </div>
+      )}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        {([["all", "Tous"], ["quote", "Devis"], ["invoice", "Factures"], ["overdue", "En retard"]] as const).map(([k, l]) => (
+          <button key={k} onClick={() => setTab(k)} className={cx("rounded-full px-4 py-1.5 text-sm font-medium", tab === k ? "bg-brand-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200")}>{l}</button>
+        ))}
+        <div className="ml-auto w-60"><input placeholder="N° ou objet…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      </div>
+      <Card>
+        {list.isLoading ? <Loading /> : !list.data?.length ? <Empty>Aucun document.</Empty> : (
+          <div className="overflow-x-auto"><table className="w-full text-sm">
+            <thead><tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-400"><th className="py-2">Numéro</th><th>Type</th><th>Client</th><th>Date</th><th>Échéance</th><th className="text-right">Total TTC</th><th className="text-right">Reste</th><th>Statut</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {list.data.map((d) => (
+                <tr key={d.id} className="hover:bg-slate-50">
+                  <td className="py-2.5"><Link className="font-medium text-brand-600" to={`/facturation/${d.id}`}>{d.number ?? "Brouillon"}</Link>{d.title && <span className="block text-xs text-slate-400">{d.title}</span>}</td>
+                  <td>{d.kind === "quote" ? "Devis" : "Facture"}</td><td>{d.company_name || "—"}</td><td>{fmtDate(d.issue_date)}</td><td>{fmtDate(d.due_date)}</td>
+                  <td className="text-right font-medium">{fmtMoney(d.total_ttc)}</td><td className="text-right">{d.remaining ? fmtMoney(d.remaining) : "—"}</td>
+                  <td>{d.is_overdue ? <Badge tone="red">En retard</Badge> : <Badge tone={STATUS[d.status]?.[1]}>{STATUS[d.status]?.[0] ?? d.status}</Badge>}</td>
+                </tr>
+              ))}
+            </tbody></table></div>
+        )}
+      </Card>
+    </>
+  );
+}

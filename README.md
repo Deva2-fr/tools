@@ -1,17 +1,19 @@
 # Deva2 Hub
 
-Application interne qui centralise les outils de la société **Deva2** :
+Application interne qui centralise **tout le pilotage de la société Deva2** : relation client (CRM), facturation, finances, équipe et infrastructure.
 
-| Module | Ce que ça fait |
+| Domaine | Modules |
 |---|---|
-| 🌐 **Projets & serveurs** | Fiche de chaque site (formasyl.org, dev.icetheaters.deva2.fr, deva2.fr…) : lien, serveurs (hébergeur, IP, OS…), technologies, outils de monitoring, état en direct |
-| 🚨 **Monitoring & alertes** | Vérifie chaque site (disponibilité, temps de réponse, certificat SSL, en-têtes de sécurité) et alerte par e-mail / Slack / Discord / Telegram en cas de panne, d'attaque probable ou de certificat qui expire |
-| 🛡️ **Veille sécurité** | Compare vos technologies (nginx, PHP, WordPress…) à la base NVD et au catalogue CISA des failles activement exploitées → alerte si faille critique |
-| ✉️ **Mails Outlook** | Lit votre boîte (lecture seule) et tague **« À répondre »**, **« Urgent »**, **« Répondu »** |
-| 🧾 **Notes de frais** | Formulaire → remplit un Google Doc modèle → **télécharge le PDF** |
-| 📅 **Impôts & TVA** | Calendrier des échéances (TVA, IS, CFE, URSSAF…) avec rappels J-30 / J-7 / J-1, export agenda `.ics` |
+| 🤝 **Commercial (CRM)** | **Sociétés** et **contacts** (fiche complète : activités, mails Outlook liés, devis/factures, tâches), **pipeline** en Kanban (glisser-déposer) avec prévision de CA pondérée, **tâches** et journal d'activité, import/export CSV, recherche globale **⌘K** |
+| 💶 **Finances** | **Devis & factures** (numérotation continue sans trou, TVA par taux, PDF, paiements partiels, devis → facture, relances automatiques des impayés), **trésorerie** (comptes, import CSV bancaire, prévision à 30/90/180 j), **abonnements, domaines & contrats** (rappels de renouvellement, coût annuel), **notes de frais** (Google Doc → PDF), **impôts & TVA** (échéances + rappels, export agenda) |
+| 👥 **Équipe** | Collaborateurs, **congés** (demande → validation, calendrier d'absences, soldes), **check-lists** arrivée/départ, **suivi du temps** et **rentabilité par client**, **coffre de documents**, **registre des accès** (sans mots de passe) |
+| 🌐 **Infrastructure** | **Projets & serveurs** (formasyl.org, dev.icetheaters.deva2.fr, deva2.fr…), **monitoring** (disponibilité, SSL, en-têtes), **alertes** e-mail/Slack/Discord/Telegram (panne, attaque probable, faille critique), **veille CVE** (NVD + CISA KEV), **page de statut publique** `/statut` |
+| ✉️ **Mails** | Boîte **Outlook** en lecture seule avec tags « À répondre » / « Urgent » / « Répondu » |
+| 📣 **Pilotage** | **Résumé quotidien** à 8h50 (mails, tâches, factures en retard, échéances, renouvellements, congés à valider) et **tableau de bord** adapté au rôle |
 
-Tout est modifiable depuis l'interface (ajout/modification/suppression de projets, serveurs, canaux d'alerte, échéances, utilisateurs, clés d'API).
+Trois rôles : **Membre** (CRM, tâches, temps, congés, notes de frais), **Manager** (+ finances, équipe, documents, accès), **Administrateur** (+ réglages, intégrations, utilisateurs).
+
+Tout est modifiable depuis l'interface (ajout/modification/suppression partout).
 
 ## Démarrage rapide
 
@@ -37,10 +39,11 @@ Internet ──443──▶ Caddy (HTTPS auto, en-têtes de sécurité)
 ```
 backend/app/
   core/       configuration, base de données, sécurité (sessions, CSRF, limiteur), chiffrement
-  models.py   tables SQLAlchemy (créées au démarrage)
-  routers/    API REST : auth, projects, alerts, security, mail, expenses, taxes, integrations…
-  services/   logique métier : monitoring, security_watch (CVE), outlook (Graph), google_docs, taxes, alerts
-  worker.py   tâches planifiées (sites chaque minute selon leur fréquence, mails /5 min, CVE 3h15, rappels d'impôts 8h30)
+  models.py   tables SQLAlchemy ; le schéma est géré par Alembic (alembic/versions, appliqué au démarrage)
+  routers/    API REST : auth, crm, billing, ops (abonnements, trésorerie, temps, équipe, fichiers), projects, alerts…
+              (_common.py : fabrique de routes CRUD réutilisée par la plupart des modules)
+  services/   logique métier : billing (+PDF), treasury, renewals, digest, monitoring, security_watch, outlook, google_docs, taxes, alerts
+  worker.py   tâches planifiées (sites chaque minute selon leur fréquence, mails /5 min, CVE 3h15, puis 8h30-8h50 : impôts, factures, renouvellements, résumé du jour)
 frontend/src/ pages React (une par module) + petit kit UI (ui.tsx)
 caddy/        reverse proxy
 docs/         guides
@@ -54,14 +57,15 @@ Services Docker : `caddy` (seul exposé : 80/443), `api`, `worker` (même image)
 - Protection CSRF (en-tête obligatoire sur toute écriture), CSP / HSTS / anti-clickjacking via Caddy, pas de documentation d'API publique.
 - Tokens et clés d'API **chiffrés en base** (Fernet, clé `ENCRYPTION_KEY`) et jamais renvoyés au navigateur.
 - Conteneurs non-root, système de fichiers en lecture seule, `cap_drop: ALL`, `no-new-privileges`, base de données sur un réseau Docker **sans accès Internet** et sans port publié.
-- Rôles : *Admin* (réglages, intégrations, utilisateurs) / *Membre*.
+- Rôles *Admin / Manager / Membre* vérifiés côté serveur sur chaque route (les chiffres financiers sont masqués aux membres, même dans les fiches clients).
+- Fichiers : extension autorisée + vérification du contenu + 15 Mo max + nom aléatoire, téléchargement authentifié ; exports CSV protégés contre l'injection de formules ; factures émises **immuables** et numérotées sans trou.
 - **Sauvegardez** le volume `pgdata` **et** votre `ENCRYPTION_KEY` (sans elle, les clés enregistrées sont illisibles).
 
 ## Développement
 
 ```bash
 make dev                                                                 # Docker avec rechargement auto (API sur :8000)
-cd backend && pip install -r requirements-dev.txt && python -m pytest    # 22 tests
+cd backend && pip install -r requirements-dev.txt && python -m pytest    # 54 tests
 cd frontend && npm install && npm run dev                                # http://localhost:5173
 make lint
 ```
