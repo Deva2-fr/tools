@@ -104,3 +104,26 @@ def cvss_threshold(db: Session) -> float:
         return float(get(db, "cvss_threshold", "9.0"))
     except ValueError:
         return 9.0
+
+
+def company_info(db: Session) -> dict[str, str]:
+    keys = [
+        "company_name",
+        "company_legal_form",
+        "company_siret",
+        "company_vat",
+        "company_address",
+        "company_email",
+        "company_phone",
+        "company_iban",
+        "company_bic",
+        "invoice_legal_notes",
+    ]
+    return {k: get(db, k) for k in keys}
+
+
+def terms_days(db: Session) -> int:
+    try:
+        return max(0, int(get(db, "invoice_terms_days", "30")))
+    except ValueError:
+        return 30

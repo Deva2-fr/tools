@@ -1,7 +1,7 @@
 from collections.abc import Iterator
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, create_engine
+from sqlalchemy import DateTime, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.types import TypeDecorator
 
@@ -10,6 +10,17 @@ from app.core.config import get_settings
 _url = get_settings().database_url
 _args = {"check_same_thread": False} if _url.startswith("sqlite") else {}
 engine = create_engine(_url, connect_args=_args, pool_pre_ping=True)
+
+
+if _url.startswith("sqlite"):
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_fk(dbapi_conn, _):
+        dbapi_conn.execute(
+            "PRAGMA foreign_keys=ON"
+        )  # même comportement des clés étrangères qu'avec PostgreSQL
+
+
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 

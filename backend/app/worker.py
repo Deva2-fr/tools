@@ -6,8 +6,8 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.core.config import get_settings
-from app.core.db import Base, SessionLocal, engine
-from app.services import integrations, monitoring, outlook, security_watch, taxes
+from app.core.db import SessionLocal
+from app.services import billing, digest, integrations, monitoring, outlook, renewals, security_watch, taxes
 
 log = logging.getLogger("deva2.worker")
 
@@ -52,15 +52,33 @@ def job_taxes(db):
     log.info("Rappels d'échéances envoyés : %d", taxes.send_reminders(db))
 
 
+@safe("facturation")
+def job_billing(db):
+    log.info("Relances de factures : %d", billing.send_reminders(db))
+
+
+@safe("renouvellements")
+def job_renewals(db):
+    renewals.roll_renewals(db)
+    log.info("Rappels de renouvellement : %d", renewals.send_reminders(db))
+
+
+@safe("resume_quotidien")
+def job_digest(db):
+    digest.send(db)
+
+
 def main():
     logging.basicConfig(level=logging.INFO)
-    Base.metadata.create_all(engine)
     tz = get_settings().timezone
     sched = BlockingScheduler(timezone=tz)
     sched.add_job(job_monitoring, "interval", minutes=1, max_instances=1, coalesce=True)
     sched.add_job(job_mail, "interval", minutes=5, max_instances=1, coalesce=True)
     sched.add_job(job_cve, CronTrigger(hour=3, minute=15, timezone=tz))
     sched.add_job(job_taxes, CronTrigger(hour=8, minute=30, timezone=tz))
+    sched.add_job(job_billing, CronTrigger(hour=8, minute=35, timezone=tz))
+    sched.add_job(job_renewals, CronTrigger(hour=8, minute=40, timezone=tz))
+    sched.add_job(job_digest, CronTrigger(hour=8, minute=50, timezone=tz))
     log.info("Worker démarré (fuseau %s)", tz)
     sched.start()
 

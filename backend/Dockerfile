@@ -4,6 +4,8 @@ WORKDIR /srv
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 COPY app ./app
+COPY alembic ./alembic
+COPY alembic.ini .
 # Utilisateur sans privilèges : un attaquant qui compromet l'app n'est pas root.
 RUN useradd --system --uid 10001 --no-create-home hub && mkdir -p /data && chown hub /data
 USER hub

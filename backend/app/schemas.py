@@ -28,7 +28,7 @@ class UserCreate(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     name: str = ""
     password: str = Field(min_length=12, max_length=200)
-    role: Literal["admin", "member"] = "member"
+    role: Literal["admin", "manager", "member"] = "member"
 
 
 class PasswordChange(BaseModel):
@@ -80,6 +80,7 @@ class ProjectIn(BaseModel):
     monitoring_tools: str = ""
     notes: str = ""
     monitoring_enabled: bool = True
+    public_status: bool = False
     check_interval_min: int = Field(5, ge=1, le=1440)
     expected_status: int | None = None
 

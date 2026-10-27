@@ -54,10 +54,27 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     return user
 
 
+ROLE_RANK = {"member": 0, "manager": 1, "admin": 2}
+
+
+def require_role(minimum: str):
+    """Dépendance FastAPI : exige au moins le rôle `minimum` (member < manager < admin)."""
+
+    def dep(user: User = Depends(current_user)) -> User:
+        if ROLE_RANK.get(user.role, -1) < ROLE_RANK[minimum]:
+            raise HTTPException(403, "Droits insuffisants pour cette action")
+        return user
+
+    return dep
+
+
 def admin_user(user: User = Depends(current_user)) -> User:
     if user.role != "admin":
         raise HTTPException(403, "Réservé aux administrateurs")
     return user
+
+
+manager_user = require_role("manager")
 
 
 def safe_equal(a: str, b: str) -> bool:

@@ -45,6 +45,11 @@ services:
     command: ["python", "-m", "app.worker"]
     healthcheck:
       disable: true
+    depends_on:  # l'API applique les migrations Alembic au démarrage : le worker attend qu'elle soit prête
+      db:
+        condition: service_healthy
+      api:
+        condition: service_healthy
 
   frontend:
     build: ./frontend
