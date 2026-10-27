@@ -17,6 +17,8 @@ Tout est modifiable depuis l'interface (ajout/modification/suppression partout).
 
 ## Démarrage rapide
 
+> **Première fois ? Suivez le guide pas à pas : [docs/DEMARRAGE.md](docs/DEMARRAGE.md)** (installation sur votre poste, tout ce qu'il faut remplir, dépannage).
+
 ```bash
 make secrets        # crée .env avec des secrets aléatoires
 nano .env           # renseignez DOMAIN, BASE_URL, ADMIN_EMAIL, ADMIN_PASSWORD
