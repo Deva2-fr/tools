@@ -1,0 +1,10 @@
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["B008"]  # Depends() en argument par défaut : usage normal de FastAPI
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

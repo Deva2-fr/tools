@@ -1,0 +1,12 @@
+# Surcharge de développement :  docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# Expose l'API sur localhost:8000 et active le rechargement automatique.
+services:
+  api:
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    ports: ["127.0.0.1:8000:8000"]
+    volumes:
+      - ./backend/app:/srv/app
+    read_only: false
+  caddy:
+    environment:
+      DOMAIN: localhost
