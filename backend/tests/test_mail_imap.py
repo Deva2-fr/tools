@@ -4,7 +4,8 @@ from email.message import EmailMessage
 import pytest
 from sqlalchemy import select
 
-from app.models import MailMessage
+from app.core.crypto import encrypt
+from app.models import Mailbox, MailMessage
 from app.services import integrations, mail_imap, mailbox
 
 
@@ -99,11 +100,18 @@ SENT = {
 }
 
 
+def add_box(db, name="Contact", user="contact@deva2.fr", webmail=""):
+    box = Mailbox(
+        name=name, host="mail.deva2.fr", username=user, password_enc=encrypt("pw"), webmail_url=webmail
+    )
+    db.add(box)
+    db.commit()
+    return box
+
+
 @pytest.fixture()
 def imap_db(db):
-    integrations.put(db, "imap_host", "mail.deva2.fr")
-    integrations.put(db, "imap_user", "contact@deva2.fr")
-    integrations.put(db, "imap_password", "pw")
+    db.box = add_box(db)
     return db
 
 
@@ -115,7 +123,7 @@ def tags(db):
 
 def test_sync_tags_and_decoding(imap_db):
     fake = FakeImap(dict(INBOX), dict(SENT))
-    assert mail_imap.sync_inbox(imap_db, conn=fake) == 5
+    assert mail_imap.sync_inbox(imap_db, imap_db.box, conn=fake) == 5
     t = tags(imap_db)
     assert t["Devis site"] == "a_repondre"
     assert t["Relance urgente été"] == "urgent"  # sujet encodé décodé + mot « urgente »
@@ -129,8 +137,8 @@ def test_sync_tags_and_decoding(imap_db):
 
 def test_read_only_and_no_duplicates(imap_db):
     fake = FakeImap(dict(INBOX), dict(SENT))
-    mail_imap.sync_inbox(imap_db, conn=fake)
-    assert mail_imap.sync_inbox(imap_db, conn=fake) == 0
+    mail_imap.sync_inbox(imap_db, imap_db.box, conn=fake)
+    assert mail_imap.sync_inbox(imap_db, imap_db.box, conn=fake) == 0
     assert len(imap_db.scalars(select(MailMessage)).all()) == 5
     selects = [c for c in fake.calls if c[0] == "select"]
     assert selects and all(readonly for _, _, readonly in selects)  # dossiers ouverts en lecture seule
@@ -147,11 +155,11 @@ def test_sent_folder_detection():
 
 def test_reply_closes_manual_todo(imap_db):
     inbox = {5: INBOX[5]}
-    mail_imap.sync_inbox(imap_db, conn=FakeImap(inbox, {}))
+    mail_imap.sync_inbox(imap_db, imap_db.box, conn=FakeImap(inbox, {}))
     row = imap_db.scalar(select(MailMessage))
     row.manual_tag = "a_repondre"
     imap_db.commit()
-    mail_imap.sync_inbox(imap_db, conn=FakeImap(inbox, dict(SENT)))
+    mail_imap.sync_inbox(imap_db, imap_db.box, conn=FakeImap(inbox, dict(SENT)))
     imap_db.refresh(row)
     assert row.manual_tag == "fait"
 
@@ -169,26 +177,90 @@ def test_login_error_is_readable(imap_db, monkeypatch):
 
     monkeypatch.setattr(imaplib, "IMAP4_SSL", Refuse)
     with pytest.raises(mail_imap.ImapError, match="refuse"):
-        mail_imap.connect(imap_db)
+        mail_imap.connect(imap_db.box)
 
 
-def test_provider_choice_and_endpoints(client, db, monkeypatch):
-    assert client.get("/api/mail/status").json()["provider"] is None
-    assert client.post("/api/mail/sync").status_code == 400
+def test_legacy_single_mailbox_is_migrated(db):
     integrations.put(db, "imap_host", "mail.deva2.fr")
     integrations.put(db, "imap_user", "contact@deva2.fr")
     integrations.put(db, "imap_password", "pw")
     integrations.put(db, "imap_webmail_url", "https://webmail.deva2.fr")
-    assert mailbox.provider(db) == "imap"
-    st = client.get("/api/mail/status").json()
+    db.add(MailMessage(graph_id="imap:<old@x>", subject="Ancien", received_at=mail_imap.utcnow()))
+    db.commit()
+    mailbox.migrate_legacy(db)
+    (box,) = mailbox.boxes(db)
     assert (
-        st["connected"]
-        and st["mailbox"] == "contact@deva2.fr"
-        and st["webmail_url"] == "https://webmail.deva2.fr"
+        box.name == "Contact" and box.username == "contact@deva2.fr" and box.webmail_url.endswith("deva2.fr")
     )
-    monkeypatch.setattr(mail_imap, "connect", lambda _db: FakeImap(dict(INBOX), dict(SENT)))
-    assert client.post("/api/mail/sync").json() == {"new": 5}
-    assert client.get("/api/mail/messages").json()[0]["web_link"] == "https://webmail.deva2.fr"
-    assert "Connexion OK" in client.post("/api/integrations/test/imap").json()["message"]
-    fields = {f["key"]: f for f in client.get("/api/integrations").json()}
-    assert fields["imap_password"]["value"] == "" and fields["imap_password"]["is_set"]
+    assert box.password_enc and "pw" not in box.password_enc  # chiffré
+    old = db.scalar(select(MailMessage).where(MailMessage.subject == "Ancien"))
+    assert old.mailbox_id == box.id and old.graph_id == f"imap:{box.id}:<old@x>"
+    assert integrations.get(db, "imap_host") == ""  # anciens réglages vidés
+    mailbox.migrate_legacy(db)  # idempotent
+    assert len(mailbox.boxes(db)) == 1
+
+
+def test_several_mailboxes_and_endpoints(client, db, as_role, monkeypatch):
+    assert client.get("/api/mail/status").json()["connected"] is False
+    assert client.post("/api/mail/sync").status_code == 400
+
+    body = {
+        "name": "Contact",
+        "host": "mail.deva2.fr",
+        "username": "contact@deva2.fr",
+        "password": "pw",
+        "webmail_url": "https://webmail.deva2.fr",
+    }
+    contact = client.post("/api/mail/mailboxes", json=body).json()
+    assert "password" not in contact and contact["has_password"]
+    assert client.post("/api/mail/mailboxes", json={**body, "password": ""}).status_code == 400
+    compta = client.post(
+        "/api/mail/mailboxes", json={**body, "name": "Compta", "username": "compta@deva2.fr", "position": 1}
+    ).json()
+    assert as_role("member").post("/api/mail/mailboxes", json=body).status_code == 403
+    assert as_role("member").get("/api/mail/status").status_code == 200
+
+    # Contact : 5 mails (3 à traiter) ; Compta : 1 mail, et le même mail « Devis » reçu dans les deux boîtes.
+    def fake_connect(box):
+        if box.username.startswith("compta"):
+            return FakeImap({1: INBOX[1]}, {})
+        return FakeImap(dict(INBOX), dict(SENT))
+
+    monkeypatch.setattr(mail_imap, "connect", fake_connect)
+    assert client.post("/api/mail/sync").json() == {"new": 6, "errors": []}
+    assert client.post(f"/api/mail/sync?mailbox_id={compta['id']}").json()["new"] == 0
+    st = client.get("/api/mail/status").json()
+    assert [b["name"] for b in st["mailboxes"]] == ["Contact", "Compta"]
+    assert [b["todo"] for b in st["mailboxes"]] == [2, 1]
+    assert len(client.get("/api/mail/messages").json()) == 6
+    only = client.get(f"/api/mail/messages?mailbox={compta['id']}").json()
+    assert len(only) == 1 and only[0]["mailbox_id"] == compta["id"] and only[0]["subject"] == "Devis site"
+    assert client.get("/api/mail/messages?mailbox=microsoft").json() == []
+    assert (
+        client.post(f"/api/mail/mailboxes/{contact['id']}/test").json()["message"].startswith("Connexion OK")
+    )
+
+    # Modification sans mot de passe = mot de passe conservé ; désactivation = bouton masqué.
+    r = client.put(
+        f"/api/mail/mailboxes/{compta['id']}",
+        json={**body, "name": "Compta", "password": "", "active": False},
+    )
+    assert r.status_code == 200 and r.json()["has_password"]
+    assert [b["name"] for b in client.get("/api/mail/status").json()["mailboxes"]] == ["Contact"]
+
+    # Une boîte en erreur n'empêche pas les autres d'être relues.
+    def broken(box):
+        raise mail_imap.ImapError("Le serveur IMAP refuse l'identifiant ou le mot de passe.")
+
+    client.put(f"/api/mail/mailboxes/{compta['id']}", json={**body, "name": "Compta", "active": True})
+    monkeypatch.setattr(
+        mail_imap, "connect", lambda box: broken(box) if box.name == "Compta" else fake_connect(box)
+    )
+    res = client.post("/api/mail/sync").json()
+    assert res["errors"] and "Compta" in res["errors"][0]
+    assert client.get("/api/mail/mailboxes").json()[1]["last_error"].startswith("Le serveur IMAP refuse")
+    assert client.post(f"/api/mail/sync?mailbox_id={compta['id']}").status_code == 400
+
+    # Supprimer une boîte supprime ses mails dans le Hub (rien sur le serveur).
+    assert client.delete(f"/api/mail/mailboxes/{compta['id']}").status_code == 204
+    assert len(client.get("/api/mail/messages").json()) == 5

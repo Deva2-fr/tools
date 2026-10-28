@@ -21,6 +21,7 @@ from app.models import (
     ChecklistItem,
     Company,
     Employee,
+    Expense,
     FileRecord,
     Subscription,
     TimeEntry,
@@ -55,7 +56,7 @@ subs, _ = crud_router(
     search=("name", "vendor"),
     order_by=[Subscription.renewal_date.is_(None), Subscription.renewal_date],
     label=lambda o: o.name,
-    extra_out={"invoice_count": (int, 0)},
+    extra_out={"link_count": (int, 0), "spent_12m": (float, 0.0)},
 )
 accounts, _ = crud_router(
     "/accounts",
@@ -126,48 +127,90 @@ def subscriptions_summary(db: Session = Depends(get_db)):
     return {"annual_total": round(sum(by_kind.values()), 2), "by_kind": by_kind, "count": len(active)}
 
 
-class InvoiceLinks(BaseModel):
-    doc_ids: list[int] = Field(default_factory=list, max_length=500)
+class SubscriptionLinks(BaseModel):
+    invoice_ids: list[int] = Field(default_factory=list, max_length=500)
+    transaction_ids: list[int] = Field(default_factory=list, max_length=500)
+    expense_ids: list[int] = Field(default_factory=list, max_length=500)
 
 
-def _linked(s: Subscription) -> list[dict]:
-    return [
-        {
-            "id": d.id,
-            "kind": d.kind,
-            "number": d.number,
-            "status": d.status,
-            "issue_date": d.issue_date,
-            "total_ttc": d.total_ttc,
-            "external_url": d.external_url,
-        }
-        for d in s.invoices
-    ]
+def _links(db: Session, s: Subscription) -> dict:
+    accounts = {a.id: a.name for a in db.scalars(select(BankAccount))}
+    return {
+        "invoices": [
+            {
+                "id": d.id,
+                "date": d.issue_date,
+                "label": d.number or f"Brouillon #{d.id}",
+                "status": d.status,
+                "amount": d.total_ttc,
+                "external_url": d.external_url,
+            }
+            for d in s.invoices
+        ],
+        "transactions": [
+            {
+                "id": t.id,
+                "date": t.tx_date,
+                "label": t.label,
+                "account": accounts.get(t.account_id, ""),
+                "amount": abs(float(t.amount)),
+            }
+            for t in s.transactions
+        ],
+        "expenses": [
+            {
+                "id": e.id,
+                "date": e.expense_date,
+                "label": e.reason,
+                "employee": e.employee,
+                "amount": e.amount_ttc,
+            }
+            for e in s.expenses
+        ],
+        "spent_12m": s.spent_12m,
+        "annual_cost": renewals.annual_cost(s),
+    }
 
 
-@router.get("/subscriptions/{sub_id}/invoices", dependencies=[Depends(manager_user)])
-def subscription_invoices(sub_id: int, db: Session = Depends(get_db)):
+def _sub(db: Session, sub_id: int) -> Subscription:
     s = db.get(Subscription, sub_id)
     if not s:
         raise HTTPException(404)
-    return _linked(s)
+    return s
 
 
-@router.put("/subscriptions/{sub_id}/invoices")
-def link_subscription_invoices(
-    sub_id: int, body: InvoiceLinks, db: Session = Depends(get_db), user: User = Depends(manager_user)
+def _fetch(db: Session, model, ids: list[int], what: str) -> list:
+    wanted = set(ids)
+    rows = db.scalars(select(model).where(model.id.in_(wanted))).all() if wanted else []
+    if len(rows) != len(wanted):
+        raise HTTPException(400, f"{what} introuvable")
+    return list(rows)
+
+
+@router.get("/subscriptions/{sub_id}/links", dependencies=[Depends(manager_user)])
+def subscription_links(sub_id: int, db: Session = Depends(get_db)):
+    return _links(db, _sub(db, sub_id))
+
+
+@router.put("/subscriptions/{sub_id}/links")
+def set_subscription_links(
+    sub_id: int, body: SubscriptionLinks, db: Session = Depends(get_db), user: User = Depends(manager_user)
 ):
-    s = db.get(Subscription, sub_id)
-    if not s:
-        raise HTTPException(404)
-    ids = set(body.doc_ids)
-    docs = db.scalars(select(BillingDoc).where(BillingDoc.id.in_(ids))).all() if ids else []
-    if len(docs) != len(ids):
-        raise HTTPException(400, "Facture introuvable")
-    s.invoices = list(docs)
+    s = _sub(db, sub_id)
+    transactions = _fetch(db, Transaction, body.transaction_ids, "Mouvement bancaire")
+    if any(t.amount >= 0 for t in transactions):
+        raise HTTPException(400, "Seuls les débits (sorties d'argent) peuvent être liés à un abonnement.")
+    s.invoices = _fetch(db, BillingDoc, body.invoice_ids, "Facture")
+    s.transactions = transactions
+    s.expenses = _fetch(db, Expense, body.expense_ids, "Note de frais")
     db.commit()
-    audit(db, user.email, "subscription_invoices_linked", f"{s.name}: {len(docs)}")
-    return _linked(s)
+    audit(
+        db,
+        user.email,
+        "subscription_links_updated",
+        f"{s.name}: {len(s.invoices)} facture(s), {len(s.transactions)} mouvement(s), {len(s.expenses)} note(s)",
+    )
+    return _links(db, s)
 
 
 # ---------- Trésorerie ----------

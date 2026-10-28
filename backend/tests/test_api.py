@@ -109,7 +109,12 @@ def test_security_webhook(client, anon):
 
 
 def test_taxes_generate_paid_recurrence_and_ics(client):
-    assert client.post("/api/taxes/generate?year=2027").json()["created"] > 12
+    assert client.post("/api/taxes/generate?year=2027").json()["created"] == 6
+    titles = {x["title"]: x for x in client.get("/api/taxes").json()}
+    assert titles["TVA trimestrielle – déclaration CA3 (T4 2026)"]["due_date"] == "2027-01-20"
+    assert titles["TVA trimestrielle – déclaration CA3 (T3 2027)"]["due_date"] == "2027-10-20"
+    assert "Déclaration annuelle de résultats (liasse fiscale)" in titles and "CFE – avis à payer" in titles
+    assert not any("URSSAF" in t or "Acompte" in t for t in titles)
     assert client.post("/api/taxes/generate?year=2027").json()["created"] == 0  # idempotent
     t = client.post(
         "/api/taxes",

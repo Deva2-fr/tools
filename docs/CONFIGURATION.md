@@ -52,13 +52,16 @@ Votre messagerie est sur un serveur mail classique, celui qu'interroge l'applica
 | Gandi | `mail.gandi.net` | 993 |
 | o2switch / cPanel | `mail.<votre-domaine>` | 993 |
 
-Dans le Hub : **Paramètres → Intégrations → Boîte mail (IMAP)**.
-- *Serveur IMAP* et *Port* : voir ci-dessus (993 = SSL, recommandé ; 143 = STARTTLS, accepté).
-- *Identifiant* : en général l'adresse e-mail complète ; *Mot de passe* : celui de la boîte (stocké chiffré, jamais réaffiché).
-- *Dossier des envoyés* : à laisser vide, il est détecté seul (« Sent », « Éléments envoyés »…). Renseignez-le seulement si le test dit qu'il est introuvable.
-- *Lien du webmail* : facultatif (ex. `https://www.ovh.com/fr/mail/`), il ajoute un bouton **Ouvrir le webmail** dans la page Mails.
+Dans le Hub : **Paramètres → Intégrations → Boîtes mail (IMAP) → + Boîte mail**, une fois **par adresse** à suivre (contact@, compta@, votre boîte personnelle…) :
+- *Nom du bouton* : ce qui s'affiche dans la page Mails (ex. « Contact », « Compta ») ;
+- *Serveur IMAP* et *Port* : voir ci-dessus (993 = SSL, recommandé ; 143 = STARTTLS, accepté) ;
+- *Identifiant* : en général l'adresse e-mail complète ; *Mot de passe* : celui de la boîte (stocké chiffré, jamais réaffiché ; laissez vide en modification pour le garder) ;
+- *Dossier des envoyés* : à laisser vide, il est détecté seul (« Sent », « Éléments envoyés »…). Renseignez-le seulement si le test dit qu'il est introuvable ;
+- *Adresse du webmail* : facultatif (ex. `https://www.ovh.com/fr/mail/`), pour le bouton **Ouvrir le webmail**.
 
-Cliquez **Tester la connexion** (« Connexion OK – N message(s)… »), puis **Mails → Actualiser**. Ensuite la boîte est relue **toutes les 5 minutes** (30 derniers jours).
+Cliquez **Tester la connexion** sur la ligne de la boîte (« Connexion OK – N message(s)… »), puis **Mails → Actualiser**. Toutes les boîtes actives sont ensuite relues **toutes les 5 minutes** (30 derniers jours). Dans la page **Mails**, un bouton par boîte (avec le nombre de mails à traiter) permet de passer de l'une à l'autre ; « Toutes les boîtes » les regroupe. Une boîte en erreur (mot de passe changé…) est signalée par un point rouge sans bloquer les autres.
+
+Si vous aviez déjà renseigné une boîte unique avant cette version, elle est reprise automatiquement comme première boîte.
 
 Le Hub est en **lecture seule** : il ne marque aucun mail comme lu, n'envoie, ne déplace ni ne supprime rien.
 
@@ -132,7 +135,7 @@ La recherche se fait par mot-clé : vérifiez toujours que votre version est con
 
 ## 7. Impôts & TVA
 
-*Impôts & TVA → Pré-remplir* crée les échéances types de l'année (TVA mensuelle, acomptes et solde d'IS, CFE, URSSAF, dépôt des comptes, DAS2…). ⚠️ **Ce sont des dates indicatives** (société à l'IS, exercice = année civile) : faites-les confirmer par votre expert-comptable puis ajustez dates et montants. Vous pouvez ajouter vos propres échéances, avec répétition mensuelle / trimestrielle / annuelle : quand vous cliquez **« C'est payé »**, la suivante est créée automatiquement. **Exporter vers mon agenda** génère un fichier `.ics` (Outlook, Google Agenda…).
+*Impôts & TVA → Pré-remplir* crée les échéances types de l'année : **TVA trimestrielle** (CA3 vers le 20 janvier, avril, juillet et octobre, pour le trimestre écoulé), **déclaration annuelle de résultats** (liasse fiscale vers le 15 mai, avec le relevé de solde d'IS s'il y a de l'IS à payer : pas d'acomptes) et **CFE** (15 décembre). Pas d'URSSAF. ⚠️ **Ce sont des dates indicatives** (société à l'IS, exercice = année civile) : faites-les confirmer par votre expert-comptable puis ajustez dates et montants. Vous pouvez ajouter vos propres échéances, avec répétition mensuelle / trimestrielle / annuelle : quand vous cliquez **« C'est payé »**, la suivante est créée automatiquement. **Exporter vers mon agenda** génère un fichier `.ics` (Outlook, Google Agenda…).
 
 ---
 
@@ -144,7 +147,7 @@ Le PDF contient déjà les mentions obligatoires usuelles (pénalités de retard
 
 **Devis et factures faits dans Qonto ?** Si la clé API Qonto est renseignée (section 12), le Hub **importe vos devis et factures Qonto** toutes les heures (ou via **Devis & factures → Synchroniser Qonto**) : client (créé dans le CRM s'il n'existe pas), lignes, montants, statut, paiement et lien **Ouvrir dans Qonto**. Ces documents sont en lecture seule dans le Hub : on les crée et les modifie dans Qonto. Ils alimentent le CA, le reste à encaisser, les relances d'impayés et la prévision de trésorerie. Les boutons « + Devis / + Facture » du Hub disparaissent alors pour garder une seule numérotation.
 
-**Abonnements ↔ factures** : dans **Abonnements**, le bouton **Lier des factures** rattache à un abonnement (hébergement, nom de domaine…) les factures qui le concernent, par exemple sa refacturation au client.
+**Abonnements ↔ dépenses** : dans **Abonnements**, le bouton **Dépenses liées** rattache à un abonnement (hébergement, nom de domaine…) tout ce qui a été payé pour lui : **mouvements bancaires** (ex. prélèvement OVH importé de Qonto ; la liste est pré-filtrée sur le fournisseur), **notes de frais** et **factures**. La colonne **Payé (12 mois)** additionne ces dépenses et signale quand elles dépassent nettement le coût prévu.
 
 **Comment marche la facturation sans Qonto ?**
 1. *Devis & factures → + Devis* : choisissez le client, ajoutez des lignes (le total se calcule seul, TVA par taux). Enregistrez : c'est un **brouillon** modifiable, sans numéro.
@@ -192,7 +195,7 @@ Le Hub importe tout seul, **toutes les heures**, vos comptes Qonto, leurs soldes
 | « Microsoft a refusé la connexion » | L'URI de redirection ne correspond pas **exactement** à celle affichée dans le Hub |
 | « Dossier Drive introuvable » (Google) | Le dossier « Note de frais » n'est pas partagé avec l'e-mail du compte de service |
 | « pas d'espace de stockage » (Google) | Le dossier est dans « Mon Drive » : placez-le dans un Drive partagé |
-| « Le serveur IMAP refuse l'identifiant » | Mauvais mot de passe, ou identifiant différent de l'adresse e-mail : vérifiez dans Outlook |
+| « Le serveur IMAP refuse l'identifiant » | Mauvais mot de passe, ou identifiant différent de l'adresse e-mail : vérifiez dans Outlook, puis Paramètres → Boîtes mail → Modifier |
 | « Serveur IMAP injoignable » | Nom du serveur ou port erroné (993 en SSL) |
 | Aucune alerte reçue | Aucun canal créé, ou seuil trop haut ; utilisez « Envoyer un test » |
 | « Qonto refuse les identifiants » | Identifiant ou clé secrète erronés (ou clé régénérée chez Qonto) : recopiez-les dans Paramètres → Intégrations |

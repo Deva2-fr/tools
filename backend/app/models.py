@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import (
     JSON,
@@ -155,9 +155,31 @@ class Integration(Base):
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
 
 
+class Mailbox(Base):
+    """Une boîte mail lue en IMAP (contact@, compta@, une boîte personnelle…)."""
+
+    __tablename__ = "mailboxes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))  # libellé du bouton dans la page Mails
+    host: Mapped[str] = mapped_column(String(255))
+    port: Mapped[int] = mapped_column(Integer, default=993)
+    username: Mapped[str] = mapped_column(String(255))
+    password_enc: Mapped[str] = mapped_column(Text, default="")  # chiffré, jamais renvoyé
+    sent_folder: Mapped[str] = mapped_column(String(255), default="")
+    webmail_url: Mapped[str] = mapped_column(String(500), default="")
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    last_error: Mapped[str] = mapped_column(String(300), default="")
+
+
 class MailMessage(Base):
     __tablename__ = "mail_messages"
     id: Mapped[int] = mapped_column(primary_key=True)
+    # None = boîte Microsoft 365 (optionnelle)
+    mailbox_id: Mapped[int | None] = mapped_column(
+        ForeignKey("mailboxes.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     graph_id: Mapped[str] = mapped_column(String(400), unique=True)
     conversation_id: Mapped[str] = mapped_column(String(400), default="", index=True)
     subject: Mapped[str] = mapped_column(String(500), default="")
@@ -403,13 +425,31 @@ class Subscription(Base):
     auto_renew: Mapped[bool] = mapped_column(Boolean, default=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[str] = mapped_column(Text, default="")
+    # Dépenses liées : factures, mouvements bancaires (débits) et notes de frais.
     invoices: Mapped[list["BillingDoc"]] = relationship(
         secondary="subscription_invoices", order_by="BillingDoc.issue_date.desc()"
     )
+    transactions: Mapped[list["Transaction"]] = relationship(
+        secondary="subscription_transactions", order_by="Transaction.tx_date.desc()"
+    )
+    expenses: Mapped[list["Expense"]] = relationship(
+        secondary="subscription_expenses", order_by="Expense.expense_date.desc()"
+    )
 
     @property
-    def invoice_count(self) -> int:
-        return len(self.invoices)
+    def link_count(self) -> int:
+        return len(self.invoices) + len(self.transactions) + len(self.expenses)
+
+    @property
+    def spent_12m(self) -> float:
+        """Total réellement payé sur les 12 derniers mois, toutes dépenses liées confondues."""
+        since = date.today() - timedelta(days=365)
+        total = sum(abs(float(t.amount)) for t in self.transactions if t.tx_date >= since)
+        total += sum(float(e.amount_ttc) for e in self.expenses if e.expense_date >= since)
+        total += sum(
+            float(d.total_ttc) for d in self.invoices if d.issue_date >= since and d.status != "cancelled"
+        )
+        return round(total, 2)
 
 
 class SubscriptionInvoice(Base):
@@ -420,6 +460,28 @@ class SubscriptionInvoice(Base):
         ForeignKey("subscriptions.id", ondelete="CASCADE"), primary_key=True
     )
     doc_id: Mapped[int] = mapped_column(ForeignKey("billing_docs.id", ondelete="CASCADE"), primary_key=True)
+
+
+class SubscriptionTransaction(Base):
+    """Lien abonnement ↔ mouvement bancaire (ex. prélèvement OVH importé de Qonto)."""
+
+    __tablename__ = "subscription_transactions"
+    subscription_id: Mapped[int] = mapped_column(
+        ForeignKey("subscriptions.id", ondelete="CASCADE"), primary_key=True
+    )
+    transaction_id: Mapped[int] = mapped_column(
+        ForeignKey("transactions.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class SubscriptionExpense(Base):
+    """Lien abonnement ↔ note de frais (abonnement payé avec une carte personnelle, par exemple)."""
+
+    __tablename__ = "subscription_expenses"
+    subscription_id: Mapped[int] = mapped_column(
+        ForeignKey("subscriptions.id", ondelete="CASCADE"), primary_key=True
+    )
+    expense_id: Mapped[int] = mapped_column(ForeignKey("expenses.id", ondelete="CASCADE"), primary_key=True)
 
 
 # ======================= Trésorerie =======================

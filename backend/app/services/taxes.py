@@ -7,97 +7,33 @@ from sqlalchemy.orm import Session
 from app.models import TaxDeadline
 from app.services.alerts import create_alert
 
-# Modèles indicatifs pour une société française à l'IS (exercice = année civile).
-# Les dates varient selon votre régime et votre date de clôture : à valider avec votre comptable.
+# Échéances types de Deva2 (société à l'IS, exercice = année civile) : TVA trimestrielle, déclaration
+# annuelle de résultats et CFE. Pas d'URSSAF ni d'acomptes d'IS. À valider avec votre comptable.
+# `months` : mois d'échéance ; `{trimestre}` est remplacé par le trimestre déclaré.
+QUARTER_DECLARED = {1: "T4", 4: "T1", 7: "T2", 10: "T3"}
 TEMPLATES = [
     {
-        "title": "TVA – déclaration CA3 mensuelle",
+        "title": "TVA trimestrielle – déclaration CA3 ({trimestre})",
         "category": "tva",
-        "month": None,
+        "months": [1, 4, 7, 10],
         "day": 20,
-        "recurrence": "monthly",
-        "notes": "Date limite entre le 15 et le 24 selon votre SIE (impots.gouv > Professionnel).",
+        "notes": "TVA du trimestre écoulé. Date limite entre le 15 et le 24 selon votre SIE "
+        "(impots.gouv > Professionnel > Mes échéances).",
     },
     {
-        "title": "Acompte d'IS n°1",
+        "title": "Déclaration annuelle de résultats (liasse fiscale)",
         "category": "is",
-        "month": 3,
+        "months": [5],
         "day": 15,
-        "recurrence": "yearly",
-        "notes": "",
+        "notes": "Exercice clos au 31/12 : liasse 2065 et annexes. Pas d'acompte d'IS : l'éventuel IS "
+        "est réglé en une fois avec le relevé de solde 2572, à la même date.",
     },
     {
-        "title": "Solde de l'IS",
-        "category": "is",
-        "month": 5,
-        "day": 15,
-        "recurrence": "yearly",
-        "notes": "Exercice clos au 31/12.",
-    },
-    {
-        "title": "Acompte d'IS n°2",
-        "category": "is",
-        "month": 6,
-        "day": 15,
-        "recurrence": "yearly",
-        "notes": "",
-    },
-    {
-        "title": "Acompte de CFE",
+        "title": "CFE – avis à payer",
         "category": "cfe",
-        "month": 6,
+        "months": [12],
         "day": 15,
-        "recurrence": "yearly",
-        "notes": "Si CFE > 3 000 €.",
-    },
-    {
-        "title": "Acompte d'IS n°3",
-        "category": "is",
-        "month": 9,
-        "day": 15,
-        "recurrence": "yearly",
-        "notes": "",
-    },
-    {
-        "title": "Acompte d'IS n°4",
-        "category": "is",
-        "month": 12,
-        "day": 15,
-        "recurrence": "yearly",
-        "notes": "",
-    },
-    {"title": "Solde de CFE", "category": "cfe", "month": 12, "day": 15, "recurrence": "yearly", "notes": ""},
-    {
-        "title": "Dépôt des comptes annuels (greffe)",
-        "category": "comptes",
-        "month": 7,
-        "day": 31,
-        "recurrence": "yearly",
-        "notes": "Dans le mois suivant l'approbation des comptes (AG sous 6 mois après clôture).",
-    },
-    {
-        "title": "DAS2 (honoraires versés)",
-        "category": "social",
-        "month": 2,
-        "day": 1,
-        "recurrence": "yearly",
-        "notes": "",
-    },
-    {
-        "title": "TVA – régularisation annuelle (CA12)",
-        "category": "tva",
-        "month": 5,
-        "day": 2,
-        "recurrence": "yearly",
-        "notes": "Uniquement si vous êtes au régime simplifié.",
-    },
-    {
-        "title": "URSSAF – cotisations mensuelles",
-        "category": "urssaf",
-        "month": None,
-        "day": 15,
-        "recurrence": "monthly",
-        "notes": "Le 5 ou le 15 selon votre périodicité.",
+        "notes": "Avis disponible en novembre dans votre espace professionnel impots.gouv.",
     },
 ]
 
@@ -123,21 +59,19 @@ def generate_year(db: Session, year: int) -> int:
     """Crée les échéances modèles d'une année (sans doublon)."""
     created = 0
     for t in TEMPLATES:
-        months = range(1, 13) if t["month"] is None else [t["month"]]
-        for m in months:
+        for m in t["months"]:
             due = _clamp(year, m, t["day"])
+            title = t["title"].format(
+                trimestre=f"{QUARTER_DECLARED.get(m, '')} {year - 1 if m == 1 else year}"
+            )
             exists = db.scalar(
-                select(TaxDeadline.id).where(TaxDeadline.title == t["title"], TaxDeadline.due_date == due)
+                select(TaxDeadline.id).where(TaxDeadline.title == title, TaxDeadline.due_date == due)
             )
             if not exists:
                 # Chaque occurrence est créée explicitement : pas de récurrence à régénérer.
                 db.add(
                     TaxDeadline(
-                        title=t["title"],
-                        category=t["category"],
-                        due_date=due,
-                        notes=t["notes"],
-                        recurrence="none",
+                        title=title, category=t["category"], due_date=due, notes=t["notes"], recurrence="none"
                     )
                 )
                 created += 1

@@ -223,3 +223,67 @@ def test_role_assignment_validation(client):
         ).status_code
         == 422
     )
+
+
+def test_subscription_linked_expenses(client, as_role):
+    from datetime import date, timedelta
+
+    today = date.today()
+    sub = client.post(
+        "/api/subscriptions", json={"name": "Hébergement", "vendor": "OVH", "cost": 50, "period": "monthly"}
+    ).json()
+    acc = client.post("/api/accounts", json={"name": "Banque"}).json()
+    debit = client.post(
+        "/api/transactions",
+        json={"account_id": acc["id"], "tx_date": str(today), "label": "Prélèvement OVH SAS", "amount": -60},
+    ).json()
+    old = client.post(
+        "/api/transactions",
+        json={
+            "account_id": acc["id"],
+            "tx_date": str(today - timedelta(days=400)),
+            "label": "OVH",
+            "amount": -60,
+        },
+    ).json()
+    credit = client.post(
+        "/api/transactions",
+        json={"account_id": acc["id"], "tx_date": str(today), "label": "Client", "amount": 500},
+    ).json()
+    ndf = client.post(
+        "/api/expenses",
+        json={"expense_date": str(today), "reason": "Nom de domaine", "amount_ttc": 12, "vat_rate": 20},
+    ).json()
+    inv = client.post(
+        "/api/billing",
+        json={
+            "kind": "invoice",
+            "issue_date": str(today),
+            "lines": [{"description": "x", "unit_price": 100}],
+        },
+    ).json()
+
+    url = f"/api/subscriptions/{sub['id']}/links"
+    body = {
+        "transaction_ids": [debit["id"], old["id"]],
+        "expense_ids": [ndf["id"]],
+        "invoice_ids": [inv["id"]],
+    }
+    r = client.put(url, json=body)
+    assert r.status_code == 200, r.text
+    links = r.json()
+    assert [t["label"] for t in links["transactions"]] == ["Prélèvement OVH SAS", "OVH"]
+    assert links["transactions"][0]["amount"] == 60 and links["expenses"][0]["label"] == "Nom de domaine"
+    # 12 derniers mois : 60 (le débit de plus d'un an est exclu) + 12 + 120 TTC
+    assert links["spent_12m"] == 192.0 and links["annual_cost"] == 600.0
+    listed = next(s for s in client.get("/api/subscriptions").json() if s["id"] == sub["id"])
+    assert listed["link_count"] == 4 and listed["spent_12m"] == 192.0
+
+    assert client.put(url, json={"transaction_ids": [credit["id"]]}).status_code == 400  # pas un débit
+    assert client.put(url, json={"expense_ids": [99999]}).status_code == 400
+    assert as_role("member").get(url).status_code == 403
+
+    # Supprimer une dépense retire seulement le lien.
+    client.delete(f"/api/expenses/{ndf['id']}")
+    assert client.get(url).json()["expenses"] == []
+    assert client.put(url, json={}).json()["transactions"] == []

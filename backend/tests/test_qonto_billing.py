@@ -123,7 +123,7 @@ def test_errors_are_readable(db):
         qonto_billing.sync(db, client=fake(status=401))
 
 
-def test_endpoints_read_only_and_subscription_links(client, db, as_role, monkeypatch):
+def test_endpoints_are_read_only(client, db, as_role, monkeypatch):
     assert client.get("/api/billing/qonto").json()["configured"] is False
     integrations.put(db, "qonto_login", "deva2-1234")
     integrations.put(db, "qonto_secret_key", "secret")
@@ -140,18 +140,6 @@ def test_endpoints_read_only_and_subscription_links(client, db, as_role, monkeyp
     assert client.post(f"/api/billing/{inv['id']}/status", json={"status": "cancelled"}).status_code == 400
     assert client.delete(f"/api/billing/{inv['id']}").status_code == 400
     assert client.get(f"/api/billing/{inv['id']}/pdf").content.startswith(b"%PDF")
-
-    # Abonnement ↔ factures
-    sub = client.post("/api/subscriptions", json={"name": "Hébergement Formasyl", "cost": 50}).json()
-    r = client.put(f"/api/subscriptions/{sub['id']}/invoices", json={"doc_ids": [inv["id"]]})
-    assert r.status_code == 200 and r.json()[0]["number"] == "F-2026-002"
-    assert client.get(f"/api/subscriptions/{sub['id']}/invoices").json()[0]["id"] == inv["id"]
-    listed = next(s for s in client.get("/api/subscriptions").json() if s["id"] == sub["id"])
-    assert listed["invoice_count"] == 1
-    assert (
-        client.put(f"/api/subscriptions/{sub['id']}/invoices", json={"doc_ids": [99999]}).status_code == 400
-    )
-    assert client.put(f"/api/subscriptions/{sub['id']}/invoices", json={"doc_ids": []}).json() == []
 
 
 def test_expense_pdf_uploaded_to_drive(client, db, monkeypatch):

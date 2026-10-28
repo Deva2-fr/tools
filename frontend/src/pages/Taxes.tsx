@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Tax, api } from "../api";
 import { Badge, Button, Card, Empty, ErrorMsg, Field, Loading, Modal, PageHeader, fmtDate, fmtMoney } from "../ui";
 
-const CATS: Record<string, string> = { tva: "TVA", is: "Impôt sociétés", cfe: "CFE", urssaf: "URSSAF", social: "Social", comptes: "Comptes annuels", autre: "Autre" };
+const CATS: Record<string, string> = { tva: "TVA", is: "Impôt sociétés", cfe: "CFE", social: "Social", comptes: "Comptes annuels", autre: "Autre" };
 const REC: Record<string, string> = { none: "Une seule fois", monthly: "Chaque mois", quarterly: "Chaque trimestre", yearly: "Chaque année" };
 const blank = { title: "", category: "tva", due_date: "", amount: null as number | null, recurrence: "none", reminder_days: "30,7,1", notes: "", status: "todo" };
 
@@ -85,7 +85,7 @@ export default function Taxes() {
           </ul>
         )}
       </Card>
-      {rows.length > 0 && <p className="mt-4 text-xs text-slate-400">Les échéances pré-remplies sont indicatives (société à l'IS, exercice au 31/12). Les dates exactes de TVA et d'URSSAF dépendent de votre régime : confirmez-les avec votre comptable puis ajustez-les ici. <button className="text-brand-600 underline" onClick={() => gen.mutate(year + 1)}>Pré-remplir {year + 1}</button></p>}
+      {rows.length > 0 && <p className="mt-4 text-xs text-slate-400">Échéances pré-remplies : TVA trimestrielle, déclaration annuelle de résultats et CFE (société à l'IS, exercice au 31/12, sans acompte d'IS ni URSSAF). La date exacte de la TVA dépend de votre SIE : confirmez-la avec votre comptable puis ajustez-la ici. <button className="text-brand-600 underline" onClick={() => gen.mutate(year + 1)}>Pré-remplir {year + 1}</button></p>}
       {edit && <TaxModal tax={edit === "new" ? undefined : edit} onClose={() => setEdit(null)} />}
     </>
   );

@@ -161,6 +161,7 @@ class ChannelOut(BaseModel):
 # ---------- mails ----------
 class MailOut(ORM):
     id: int
+    mailbox_id: int | None = None
     subject: str
     sender_name: str
     sender_email: str
@@ -169,6 +170,18 @@ class MailOut(ORM):
     received_at: datetime
     is_read: bool
     tag: str
+
+
+class MailboxIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    host: str = Field(min_length=1, max_length=255)
+    port: int = Field(993, ge=1, le=65535)
+    username: str = Field(min_length=1, max_length=255)
+    password: str = Field("", max_length=500)  # vide à la modification = inchangé
+    sent_folder: str = Field("", max_length=255)
+    webmail_url: str = Field("", max_length=500)
+    position: int = 0
+    active: bool = True
 
 
 class MailTagIn(BaseModel):

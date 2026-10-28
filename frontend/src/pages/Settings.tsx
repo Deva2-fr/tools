@@ -6,11 +6,10 @@ import { Badge, Button, Card, ErrorMsg, Field, Loading, Modal, PageHeader, fmtDa
 
 const GROUPS: Record<string, { title: string; test?: string; intro: string }> = {
   company: { title: "Ma société (devis & factures)", intro: "Ces informations apparaissent sur vos PDF de devis et factures. Pensez à les compléter avant d'émettre votre première facture. Guide : section 8." },
-  imap: { title: "Boîte mail (IMAP)", test: "imap", intro: "Pour lire votre boîte (celle qu'Outlook consulte) et repérer les mails à répondre. Mêmes réglages que dans Outlook : Fichier → Paramètres du compte. Lecture seule. Guide : section 3." },
   google: { title: "Google Drive (notes de frais)", test: "google", intro: "Chaque note de frais enregistrée est déposée en PDF dans Deva2 › Administration › Comptabilité › Note de frais. Guide : section 4." },
   email: { title: "E-mail d'envoi des alertes (SMTP)", test: "smtp", intro: "Pour recevoir les alertes par e-mail. Guide : section 5." },
   qonto: { title: "Banque Qonto (trésorerie)", test: "qonto", intro: "Synchronise automatiquement (toutes les heures) vos comptes, transactions, devis et factures Qonto. Lecture seule. Guide : section 12." },
-  outlook: { title: "Microsoft 365 (optionnel)", test: "outlook", intro: "Uniquement si la boîte est hébergée chez Microsoft 365 au lieu d'un serveur IMAP. Guide : section 3, annexe." },
+  outlook: { title: "Microsoft 365 (optionnel)", test: "outlook", intro: "Uniquement pour une boîte hébergée chez Microsoft 365 (qui n'accepte pas l'IMAP) : elle apparaît alors comme un bouton de plus dans Mails. Guide : section 3, annexe." },
   security: { title: "Veille de sécurité", test: "nvd", intro: "Optionnel, mais une clé NVD gratuite rend la veille plus rapide. Guide : section 6." },
 };
 
@@ -36,6 +35,71 @@ function IntegrationField({ f }: { f: IField }) {
   );
 }
 
+interface Box { id: number; name: string; host: string; port: number; username: string; has_password: boolean; sent_folder: string; webmail_url: string; position: number; active: boolean; last_synced_at: string | null; last_error: string }
+const blankBox = { name: "", host: "", port: 993, username: "", password: "", sent_folder: "", webmail_url: "", position: 0, active: true };
+
+/** Boîtes mail lues en IMAP : une par adresse (contact@, compta@, boîtes personnelles…). */
+function Mailboxes() {
+  const qc = useQueryClient();
+  const [edit, setEdit] = useState<(typeof blankBox & { id?: number; has_password?: boolean }) | null>(null);
+  const [result, setResult] = useState<Record<number, string>>({});
+  const boxes = useQuery({ queryKey: ["mailboxes"], queryFn: () => api<Box[]>("/mail/mailboxes") });
+  const inval = () => { qc.invalidateQueries({ queryKey: ["mailboxes"] }); qc.invalidateQueries({ queryKey: ["mail-status"] }); };
+  const save = useMutation({
+    mutationFn: () => { const { id, has_password: _h, ...body } = edit!; return id ? api(`/mail/mailboxes/${id}`, "PUT", body) : api("/mail/mailboxes", "POST", body); },
+    onSuccess: () => { inval(); setEdit(null); },
+  });
+  const del = useMutation({ mutationFn: (id: number) => api(`/mail/mailboxes/${id}`, "DELETE"), onSuccess: inval });
+  const test = useMutation({
+    mutationFn: (id: number) => api<{ message: string }>(`/mail/mailboxes/${id}/test`, "POST"),
+    onSuccess: (r, id) => setResult((x) => ({ ...x, [id]: r.message })),
+    onError: (e, id) => setResult((x) => ({ ...x, [id]: `Échec : ${e instanceof Error ? e.message : e}` })),
+  });
+  const set = (k: keyof typeof blankBox, v: string | number | boolean) => setEdit((x) => x && { ...x, [k]: v });
+  return (
+    <Card title="Boîtes mail (IMAP)" action={<Button variant="soft" onClick={() => setEdit({ ...blankBox, position: boxes.data?.length ?? 0 })}>+ Boîte mail</Button>}>
+      <p className="mb-4 text-xs text-slate-400">Une ligne par adresse à suivre (contact@, compta@, boîtes personnelles…) : chacune a son bouton dans la page Mails. Mêmes réglages que dans Outlook (Fichier → Paramètres du compte). Lecture seule : le Hub ne marque rien comme lu et ne supprime rien. Guide : section 3.</p>
+      {!boxes.data?.length ? <p className="text-sm text-slate-500">Aucune boîte pour l'instant.</p> : (
+        <ul className="divide-y divide-slate-100">
+          {boxes.data.map((b) => (
+            <li key={b.id} className="py-3 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span><b>{b.name}</b> <span className="text-slate-500">{b.username}</span> <span className="text-xs text-slate-400">· {b.host}:{b.port}</span>{!b.active && <> <Badge>désactivée</Badge></>}</span>
+                <span className="flex items-center gap-3 text-xs">
+                  <Button variant="soft" busy={test.isPending && test.variables === b.id} onClick={() => test.mutate(b.id)}>Tester la connexion</Button>
+                  <button className="text-brand-600" onClick={() => setEdit({ ...b, password: "" })}>Modifier</button>
+                  <button className="text-red-600" onClick={() => confirm(`Retirer la boîte « ${b.name} » du Hub ? (Rien n'est supprimé sur le serveur mail.)`) && del.mutate(b.id)}>Supprimer</button>
+                </span>
+              </div>
+              {result[b.id] ? <p className="mt-1 text-xs">{result[b.id]}</p>
+                : b.last_error ? <p className="mt-1 text-xs text-red-700">Dernière synchronisation en échec : {b.last_error}</p>
+                : b.last_synced_at && <p className="mt-1 text-xs text-slate-400">Synchronisée le {fmtDateTime(b.last_synced_at)}</p>}
+            </li>
+          ))}
+        </ul>
+      )}
+      <ErrorMsg error={del.error} />
+      {edit && (
+        <Modal title={edit.id ? `Modifier « ${edit.name} »` : "Nouvelle boîte mail"} onClose={() => setEdit(null)}>
+          <form className="grid gap-4 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+            <Field label="Nom du bouton *" hint="Ex : Contact, Compta, Hugo"><input required maxLength={80} value={edit.name} onChange={(e) => set("name", e.target.value)} /></Field>
+            <Field label="Identifiant *" hint="En général l'adresse e-mail complète"><input required autoComplete="off" value={edit.username} onChange={(e) => set("username", e.target.value)} /></Field>
+            <Field label="Serveur IMAP *" hint="Ex : ssl0.ovh.net, imap.ionos.fr"><input required value={edit.host} onChange={(e) => set("host", e.target.value)} /></Field>
+            <Field label="Port" hint="993 (SSL) ou 143 (STARTTLS)"><input type="number" min={1} max={65535} value={edit.port} onChange={(e) => set("port", Number(e.target.value))} /></Field>
+            <div className="sm:col-span-2"><Field label={edit.id ? "Mot de passe" : "Mot de passe *"} hint={edit.has_password ? "Enregistré (chiffré). Laissez vide pour le conserver." : "Celui de la boîte mail, stocké chiffré"}><input type="password" autoComplete="new-password" required={!edit.id} value={edit.password} onChange={(e) => set("password", e.target.value)} placeholder={edit.has_password ? "••••••••" : ""} /></Field></div>
+            <Field label="Dossier des envoyés" hint="Laissez vide : détecté automatiquement"><input value={edit.sent_folder} onChange={(e) => set("sent_folder", e.target.value)} /></Field>
+            <Field label="Adresse du webmail" hint="Facultatif, pour le bouton « Ouvrir le webmail »"><input type="url" value={edit.webmail_url} onChange={(e) => set("webmail_url", e.target.value)} placeholder="https://" /></Field>
+            <Field label="Ordre d'affichage"><input type="number" value={edit.position} onChange={(e) => set("position", Number(e.target.value))} /></Field>
+            <label className="flex items-center gap-2 self-end pb-2 text-sm"><input type="checkbox" className="!w-auto" checked={edit.active} onChange={(e) => set("active", e.target.checked)} /> Active (relue toutes les 5 minutes)</label>
+            <div className="sm:col-span-2"><ErrorMsg error={save.error} /></div>
+            <div className="flex justify-end gap-2 sm:col-span-2"><Button type="button" variant="ghost" onClick={() => setEdit(null)}>Annuler</Button><Button type="submit" busy={save.isPending}>Enregistrer</Button></div>
+          </form>
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
 function Integrations() {
   const [result, setResult] = useState<Record<string, string>>({});
   const { data } = useQuery({ queryKey: ["integrations"], queryFn: () => api<IField[]>("/integrations") });
@@ -47,6 +111,7 @@ function Integrations() {
   if (!data) return <Loading />;
   return (
     <div className="space-y-6">
+      <Mailboxes />
       {Object.entries(GROUPS).map(([g, meta]) => (
         <Card key={g} title={meta.title} action={meta.test && <Button variant="soft" busy={test.isPending && test.variables === meta.test} onClick={() => test.mutate(meta.test!)}>Tester la connexion</Button>}>
           <p className="mb-4 text-xs text-slate-400">{meta.intro}</p>
