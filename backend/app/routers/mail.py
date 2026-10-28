@@ -1,6 +1,6 @@
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -196,21 +196,48 @@ def sync(mailbox_id: int | None = None, db: Session = Depends(get_db)):
     return res
 
 
+FILTERS = {
+    "todo": ("a_repondre", "urgent"),
+    "repondu": ("repondu", "fait"),
+    "info": ("info", "ignore"),
+}
+
+
 @router.get("/messages", response_model=list[MailOut], dependencies=[Depends(current_user)])
 def messages(
+    response: Response,
     tag: str | None = None,
     box: str = Query("", alias="mailbox"),
-    limit: int = 200,
+    filter: str = "all",
+    q: str = "",
+    offset: int = 0,
+    limit: int = 100,
     db: Session = Depends(get_db),
 ):
-    """`mailbox` : id d'une boîte, « microsoft », ou vide pour toutes."""
+    """`mailbox` : id d'une boîte, « microsoft », ou vide pour toutes. `filter` : todo | repondu | info | all.
+    En-têtes : X-Total-Count (après filtre) et X-Counts (nombre par filtre, pour les boutons)."""
     stmt = select(MailMessage).order_by(MailMessage.received_at.desc())
     if box == "microsoft":
         stmt = stmt.where(MailMessage.mailbox_id.is_(None))
     elif box.isdigit():
         stmt = stmt.where(MailMessage.mailbox_id == int(box))
-    out = [_out(m) for m in db.scalars(stmt.limit(min(limit, 500)))]
-    return [m for m in out if m.tag == tag] if tag else out
+    if q.strip():
+        like = f"%{q.strip()}%"
+        stmt = stmt.where(
+            MailMessage.subject.ilike(like)
+            | MailMessage.sender_email.ilike(like)
+            | MailMessage.sender_name.ilike(like)
+            | MailMessage.preview.ilike(like)
+        )
+    out = [_out(m) for m in db.scalars(stmt)]
+    counts = {k: sum(m.tag in tags for m in out) for k, tags in FILTERS.items()} | {"all": len(out)}
+    if tag:
+        out = [m for m in out if m.tag == tag]
+    elif filter in FILTERS:
+        out = [m for m in out if m.tag in FILTERS[filter]]
+    response.headers["X-Total-Count"] = str(len(out))
+    response.headers["X-Counts"] = ",".join(f"{k}={v}" for k, v in counts.items())
+    return out[max(offset, 0) : max(offset, 0) + min(max(limit, 1), 500)]
 
 
 @router.put("/messages/{message_id}/tag", response_model=MailOut, dependencies=[Depends(current_user)])

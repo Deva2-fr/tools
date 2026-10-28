@@ -15,7 +15,33 @@ const TAGS: Record<string, { label: string; tone: "red" | "amber" | "green" | "s
   ignore: { label: "Ignoré", tone: "slate" },
   info: { label: "Information", tone: "slate" },
 };
-const FILTERS = [["todo", "À traiter"], ["all", "Tous"], ["repondu", "Répondus"], ["info", "Informations"]] as const;
+const FILTERS = [["todo", "À traiter"], ["all", "Tous les mails"], ["repondu", "Répondus"], ["info", "Informations"]] as const;
+const PAGE = 100;
+
+async function fetchMails(path: string): Promise<{ items: Mail[]; total: number; counts: Record<string, number> }> {
+  const res = await fetch(`/api${path}`, { credentials: "same-origin", headers: { "X-Requested-With": "deva2" } });
+  if (!res.ok) throw new Error(`Erreur ${res.status}`);
+  const counts = Object.fromEntries((res.headers.get("X-Counts") ?? "").split(",").filter(Boolean).map((x) => { const [k, v] = x.split("="); return [k, Number(v)]; }));
+  return { items: await res.json(), total: Number(res.headers.get("X-Total-Count") ?? 0), counts };
+}
+
+/** Explication des tags, telle qu'appliquée par le Hub (services/outlook.py : classify). */
+function TagHelp() {
+  return (
+    <details className="mt-6 rounded-md border border-slate-200 bg-white p-4 text-sm text-slate-600">
+      <summary className="cursor-pointer font-medium text-slate-800">Comment les tags sont-ils attribués ?</summary>
+      <ol className="mt-3 list-decimal space-y-2 pl-5">
+        <li><b>Votre choix d'abord</b> : un tag posé à la main (menu « Changer le tag ») l'emporte toujours. « Tag automatique » rend la main au Hub.</li>
+        <li><b>✓ Répondu</b> : le serveur porte le drapeau « répondu » (posé par Outlook, Thunderbird… quand vous répondez), ou un mail de votre dossier <i>Envoyés</i> répond à ce message (en-têtes In-Reply-To / References : couvre aussi les réponses depuis le téléphone). Un mail que vous aviez marqué « À répondre » passe alors tout seul en « Traité ».</li>
+        <li><b>Information</b> : le mail vient de vous-même ou d'un expéditeur automatique (adresse contenant noreply, no-reply, newsletter, notification, mailer-daemon, bounce…).</li>
+        <li><b>↩ À répondre</b> : le sujet ou le début du texte contient une question ou une demande : « ? », « merci de », « pouvez-vous », « pourriez-vous », « veuillez », « relance », « rappel », « devis », « facture », « disponibilité », « rendez-vous », « dans l'attente », « retour de votre part », « please », « could you », « asap »…</li>
+        <li><b>Urgent</b> : un mail « À répondre » qui contient aussi « urgent », « urgence », « asap », « dernier rappel », « mise en demeure » ou « impayé ».</li>
+        <li>Sinon : <b>Information</b>.</li>
+      </ol>
+      <p className="mt-3 text-xs text-slate-400">La détection est volontairement simple et prudente : corrigez à la main les cas particuliers. Les tags sont recalculés à chaque synchronisation (toutes les 5 minutes).</p>
+    </details>
+  );
+}
 
 export default function MailPage({ user }: { user: User }) {
   const qc = useQueryClient();
@@ -23,7 +49,16 @@ export default function MailPage({ user }: { user: User }) {
   const [filter, setFilter] = useState<string>("todo");
   const box = params.get("boite") ?? ""; // "" = toutes, id d'une boîte, ou "microsoft"
   const status = useQuery({ queryKey: ["mail-status"], queryFn: () => api<Status>("/mail/status"), refetchInterval: 120_000 });
-  const mails = useQuery({ queryKey: ["mails", box], queryFn: () => api<Mail[]>(`/mail/messages?mailbox=${encodeURIComponent(box)}`), enabled: !!status.data?.connected, refetchInterval: 120_000 });
+  const [search, setSearch] = useState("");
+  const [q, setQ] = useState("");
+  const [limit, setLimit] = useState(PAGE);
+  useEffect(() => { const t = setTimeout(() => setQ(search.trim()), 300); return () => clearTimeout(t); }, [search]);
+  useEffect(() => setLimit(PAGE), [box, filter, q]);
+  const mails = useQuery({
+    queryKey: ["mails", box, filter, q, limit],
+    queryFn: () => fetchMails(`/mail/messages?mailbox=${encodeURIComponent(box)}&filter=${filter}&q=${encodeURIComponent(q)}&limit=${limit}`),
+    enabled: !!status.data?.connected, refetchInterval: 120_000, placeholderData: (prev) => prev,
+  });
   const inval = () => qc.invalidateQueries();
   const sync = useMutation({ mutationFn: () => api<{ new: number; errors: string[] }>(`/mail/sync${/^\d+$/.test(box) ? `?mailbox_id=${box}` : ""}`, "POST"), onSuccess: inval });
   const setTag = useMutation({ mutationFn: ({ id, tag }: { id: number; tag: string }) => api(`/mail/messages/${id}/tag`, "PUT", { tag }), onSuccess: inval });
@@ -37,10 +72,8 @@ export default function MailPage({ user }: { user: User }) {
   const current = boxes.find((b) => String(b.id) === box);
   const names = Object.fromEntries(boxes.map((b) => [b.id, b.name]));
   const pick = (v: string) => setParams(v ? { boite: v } : {});
-  const list = (mails.data ?? []).filter((m) =>
-    filter === "all" ? true : filter === "todo" ? ["a_repondre", "urgent"].includes(m.tag) : filter === "repondu" ? ["repondu", "fait"].includes(m.tag) : ["info", "ignore"].includes(m.tag),
-  );
-  const todo = (mails.data ?? []).filter((m) => ["a_repondre", "urgent"].includes(m.tag)).length;
+  const list = mails.data?.items ?? [];
+  const counts = mails.data?.counts ?? {};
   const totalTodo = boxes.reduce((a, b) => a + b.todo, 0) + (st?.microsoft.todo ?? 0);
   const webmail = current?.webmail_url || (boxes.length === 1 ? boxes[0].webmail_url : "");
   const sources = boxes.length + (st?.microsoft.connected ? 1 : 0);
@@ -85,14 +118,15 @@ export default function MailPage({ user }: { user: User }) {
         </Card>
       ) : (
         <>
-          <div className="mb-4 flex flex-wrap gap-2">
+          <div className="mb-4 flex flex-wrap items-center gap-2">
             {FILTERS.map(([k, label]) => (
               <button key={k} onClick={() => setFilter(k)} className={cx("rounded px-3 py-1.5 text-sm font-medium transition", filter === k ? "bg-brand-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50")}>
-                {label}{k === "todo" && todo > 0 && <span className="ml-2 rounded-full bg-white/25 px-2 text-xs">{todo}</span>}
+                {label}{counts[k] !== undefined && <span className={cx("ml-2 rounded-full px-2 text-xs", filter === k ? "bg-white/25" : "bg-slate-100 text-slate-500")}>{counts[k]}</span>}
               </button>
             ))}
+            <div className="ml-auto w-full sm:w-72"><input type="search" placeholder="Rechercher (objet, expéditeur, texte)…" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
           </div>
-          {mails.isLoading ? <Loading /> : list.length === 0 ? <Empty>{filter === "todo" ? "Rien à répondre pour l'instant " : "Aucun mail."}</Empty> : (
+          {mails.isLoading ? <Loading /> : list.length === 0 ? <Empty>{q ? `Aucun mail ne correspond à « ${q} ».` : filter === "todo" ? "Rien à répondre pour l'instant." : "Aucun mail."}</Empty> : (
             <div className="space-y-3">
               {list.map((m) => (
                 <Card key={m.id} className={m.is_read ? "" : "border-l-4 border-l-brand-500"}>
@@ -120,7 +154,13 @@ export default function MailPage({ user }: { user: User }) {
               ))}
             </div>
           )}
-          <p className="mt-6 text-xs text-slate-400">Le tag « À répondre » est détecté automatiquement (question ou demande, pas de réponse envoyée, expéditeur non automatique). Vous pouvez toujours le corriger à la main.</p>
+          {list.length > 0 && (
+            <div className="mt-4 flex items-center justify-between text-sm text-slate-500">
+              <span>{list.length} sur {mails.data?.total ?? list.length} mail(s)</span>
+              {(mails.data?.total ?? 0) > list.length && <Button variant="soft" busy={mails.isFetching} onClick={() => setLimit((l) => l + PAGE)}>Charger plus</Button>}
+            </div>
+          )}
+          <TagHelp />
         </>
       )}
     </>

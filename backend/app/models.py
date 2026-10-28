@@ -171,6 +171,8 @@ class Mailbox(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     last_error: Mapped[str] = mapped_column(String(300), default="")
+    # UIDVALIDITY de la boîte de réception : s'il change, les numéros IMAP ne sont plus fiables.
+    uid_validity: Mapped[str] = mapped_column(String(40), default="", server_default="")
 
 
 class MailMessage(Base):
@@ -181,6 +183,7 @@ class MailMessage(Base):
         ForeignKey("mailboxes.id", ondelete="CASCADE"), nullable=True, index=True
     )
     graph_id: Mapped[str] = mapped_column(String(400), unique=True)
+    imap_uid: Mapped[int | None] = mapped_column(Integer, nullable=True)  # numéro du mail dans INBOX
     conversation_id: Mapped[str] = mapped_column(String(400), default="", index=True)
     subject: Mapped[str] = mapped_column(String(500), default="")
     sender_name: Mapped[str] = mapped_column(String(255), default="")

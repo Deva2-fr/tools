@@ -34,6 +34,7 @@ class FakeImap:
         self.sent_name = sent_name
         self.current = None
         self.calls = []
+        self.validity = b"1"
 
     def list(self):
         return "OK", [
@@ -62,6 +63,9 @@ class FakeImap:
                 data.append((f"{u} (UID {u} BODY[] {{{len(body)}}}".encode(), body))
                 data.append(b")")
         return "OK", data
+
+    def response(self, code):
+        return (code, [self.validity]) if code == "UIDVALIDITY" else (code, [None])
 
     def logout(self):
         return "BYE", []
@@ -264,3 +268,55 @@ def test_several_mailboxes_and_endpoints(client, db, as_role, monkeypatch):
     # Supprimer une boîte supprime ses mails dans le Hub (rien sur le serveur).
     assert client.delete(f"/api/mail/mailboxes/{compta['id']}").status_code == 204
     assert len(client.get("/api/mail/messages").json()) == 5
+
+
+def body_fetches(fake):
+    return [c for c in fake.calls if c[0] == "uid" and c[1] == "FETCH" and c[2][1] == "(BODY.PEEK[])"]
+
+
+def test_incremental_sync_whole_inbox(imap_db, monkeypatch):
+    monkeypatch.setattr(mail_imap, "NEW_PER_SYNC", 3)
+    inbox = dict(INBOX)
+    fake = FakeImap(inbox, dict(SENT))
+    assert mail_imap.sync_inbox(imap_db, imap_db.box, conn=fake) == 3  # les 3 plus récents d'abord
+    assert {m.imap_uid for m in imap_db.scalars(select(MailMessage))} == {3, 4, 5}
+    assert mail_imap.sync_inbox(imap_db, imap_db.box, conn=fake) == 2  # puis le reste
+    fake.calls.clear()
+    assert mail_imap.sync_inbox(imap_db, imap_db.box, conn=fake) == 0
+    assert body_fetches(fake) == []  # rien n'est retéléchargé
+
+    # Drapeau « répondu » posé plus tard par Outlook : le tag suit sans retélécharger le mail.
+    inbox[1] = (inbox[1][0], ["\\Seen", "\\Answered"])
+    mail_imap.sync_inbox(imap_db, imap_db.box, conn=fake)
+    assert tags(imap_db)["Devis site"] == "repondu"
+
+    # Mail supprimé / déplacé sur le serveur : il disparaît du Hub.
+    del inbox[4]
+    mail_imap.sync_inbox(imap_db, imap_db.box, conn=fake)
+    assert "Notification" not in tags(imap_db) and len(tags(imap_db)) == 4
+
+    # Numérotation réinitialisée par le serveur : resynchronisation propre, sans doublon.
+    fake.validity = b"2"
+    assert mail_imap.sync_inbox(imap_db, imap_db.box, conn=fake) == 0
+    assert imap_db.box.uid_validity == "2" and len(imap_db.scalars(select(MailMessage)).all()) == 4
+
+
+def test_messages_filters_search_and_paging(client, db, monkeypatch):
+    box = add_box(db)
+    mail_imap.sync_inbox(db, box, conn=FakeImap(dict(INBOX), dict(SENT)))
+    r = client.get("/api/mail/messages")
+    assert r.status_code == 200 and len(r.json()) == 5 and r.headers["x-total-count"] == "5"
+    assert dict(x.split("=") for x in r.headers["x-counts"].split(",")) == {
+        "todo": "2",
+        "repondu": "2",
+        "info": "1",
+        "all": "5",
+    }
+    todo = client.get("/api/mail/messages?filter=todo").json()
+    assert {m["subject"] for m in todo} == {"Devis site", "Relance urgente été"}
+    assert [m["subject"] for m in client.get("/api/mail/messages?q=facture").json()] == ["Question facture"]
+    assert [m["sender_email"] for m in client.get("/api/mail/messages?q=celine").json()] == [
+        "celine@client.fr"
+    ]
+    page2 = client.get("/api/mail/messages?limit=2&offset=4")
+    assert len(page2.json()) == 1 and page2.headers["x-total-count"] == "5"

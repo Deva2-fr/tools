@@ -12,7 +12,7 @@ import email
 import imaplib
 import re
 import ssl
-from datetime import UTC, datetime, timedelta
+from datetime import UTC
 from email.header import decode_header, make_header
 from email.message import Message
 from email.policy import default as default_policy
@@ -27,8 +27,9 @@ from app.core.db import utcnow
 from app.models import Mailbox, MailMessage
 from app.services import outlook
 
-DAYS = 30
-MAX_MESSAGES = 300
+MAX_MESSAGES = 5000  # mails les plus récents gardés par boîte (toute la boîte de réception en pratique)
+NEW_PER_SYNC = 400  # contenus téléchargés par passage : le premier import se fait en quelques minutes
+BATCH = 100  # mails par commande IMAP
 MAX_BODY_SIZE = 2 * 1024 * 1024  # au-delà : en-têtes seulement (pas d'aperçu)
 SENT_NAMES = (
     "Sent",
@@ -122,39 +123,43 @@ def find_sent_folder(conn, configured: str = "") -> str | None:
     return None
 
 
-def _uids_since(conn, days: int) -> list[bytes]:
-    since = (datetime.now(UTC) - timedelta(days=days)).strftime("%d-%b-%Y")
-    typ, data = conn.uid("SEARCH", None, "SINCE", since)
+def _all_uids(conn) -> list[bytes]:
+    """UID des mails du dossier ouvert, du plus ancien au plus récent (les MAX_MESSAGES derniers)."""
+    typ, data = conn.uid("SEARCH", None, "ALL")
     if typ != "OK" or not data or not data[0]:
         return []
-    return data[0].split()[-MAX_MESSAGES:]
+    return sorted(data[0].split(), key=int)[-MAX_MESSAGES:]
+
+
+def _chunks(uids: list[bytes]):
+    for i in range(0, len(uids), BATCH):
+        yield uids[i : i + BATCH]
 
 
 def _fetch(conn, uids: list[bytes], what: str) -> list[tuple[bytes, bytes]]:
     """Renvoie [(ligne de métadonnées, contenu)] pour chaque message."""
-    if not uids:
-        return []
-    typ, data = conn.uid("FETCH", b",".join(uids).decode(), what)
-    if typ != "OK":
-        return []
-    return [(item[0], item[1]) for item in data or [] if isinstance(item, tuple) and len(item) == 2]
+    out: list[tuple[bytes, bytes]] = []
+    for part in _chunks(uids):
+        typ, data = conn.uid("FETCH", b",".join(part).decode(), what)
+        if typ == "OK":
+            out += [(i[0], i[1]) for i in data or [] if isinstance(i, tuple) and len(i) == 2]
+    return out
 
 
 def _fetch_flags_sizes(conn, uids: list[bytes]) -> dict[bytes, tuple[set[str], int]]:
     """UID -> (drapeaux, taille). Ces réponses n'ont pas de contenu « littéral » : des lignes simples."""
-    if not uids:
-        return {}
-    typ, data = conn.uid("FETCH", b",".join(uids).decode(), "(UID FLAGS RFC822.SIZE)")
     out: dict[bytes, tuple[set[str], int]] = {}
-    for item in (data or []) if typ == "OK" else []:
-        line = item[0] if isinstance(item, tuple) else item
-        if not isinstance(line, bytes):
-            continue
-        uid = re.search(rb"UID (\d+)", line)
-        size = re.search(rb"RFC822\.SIZE (\d+)", line)
-        if uid:
-            flags = {f.decode() for f in imaplib.ParseFlags(line)}
-            out[uid.group(1)] = (flags, int(size.group(1)) if size else 0)
+    for part in _chunks(uids):
+        typ, data = conn.uid("FETCH", b",".join(part).decode(), "(UID FLAGS RFC822.SIZE)")
+        for item in (data or []) if typ == "OK" else []:
+            line = item[0] if isinstance(item, tuple) else item
+            if not isinstance(line, bytes):
+                continue
+            uid = re.search(rb"UID (\d+)", line)
+            size = re.search(rb"RFC822\.SIZE (\d+)", line)
+            if uid:
+                flags = {f.decode() for f in imaplib.ParseFlags(line)}
+                out[uid.group(1)] = (flags, int(size.group(1)) if size else 0)
     return out
 
 
@@ -170,9 +175,7 @@ def replied_ids(conn, sent_folder: str | None) -> set[str]:
     if typ != "OK":
         return set()
     out: set[str] = set()
-    for _meta, raw in _fetch(
-        conn, _uids_since(conn, DAYS), "(BODY.PEEK[HEADER.FIELDS (IN-REPLY-TO REFERENCES)])"
-    ):
+    for _meta, raw in _fetch(conn, _all_uids(conn), "(BODY.PEEK[HEADER.FIELDS (IN-REPLY-TO REFERENCES)])"):
         msg = email.message_from_bytes(raw)
         out |= _ids(msg.get("In-Reply-To", "")) | _ids(msg.get("References", ""))
     return out
@@ -217,8 +220,21 @@ def parse_message(raw: bytes, flags: set[str], uid: str = "?") -> dict:
     }
 
 
+def _uid_validity(conn) -> str:
+    try:
+        typ, data = conn.response("UIDVALIDITY")
+    except Exception:  # noqa: BLE001 - serveur qui ne le fournit pas
+        return ""
+    return (data[0] or b"").decode() if typ == "UIDVALIDITY" and data and data[0] else ""
+
+
 def sync_inbox(db: Session, box: Mailbox, conn=None) -> int:
-    """Synchronise les 30 derniers jours de la boîte de réception. Renvoie le nombre de nouveaux mails."""
+    """Synchronise la boîte de réception (jusqu'aux MAX_MESSAGES mails les plus récents).
+
+    Seuls les nouveaux mails sont téléchargés ; pour les autres on relit les drapeaux (lu, répondu)
+    afin de mettre les tags à jour. Un mail supprimé ou déplacé sur le serveur disparaît du Hub.
+    Renvoie le nombre de nouveaux mails.
+    """
     own = conn is None
     try:
         conn = conn or connect(box)
@@ -232,10 +248,32 @@ def sync_inbox(db: Session, box: Mailbox, conn=None) -> int:
         typ, _ = conn.select("INBOX", readonly=True)
         if typ != "OK":
             raise ImapError("Impossible d'ouvrir la boîte de réception (INBOX).")
-        uids = _uids_since(conn, DAYS)
+        validity = _uid_validity(conn)
+        rows = db.scalars(select(MailMessage).where(MailMessage.mailbox_id == box.id)).all()
+        if validity != box.uid_validity:
+            for r in rows:  # numérotation IMAP réinitialisée par le serveur : on repart des Message-ID
+                r.imap_uid = None
+            box.uid_validity = validity
+        uids = _all_uids(conn)
         info = _fetch_flags_sizes(conn, uids)
-        small = [u for u in uids if info.get(u, (set(), 0))[1] <= MAX_BODY_SIZE]
-        big = [u for u in uids if info.get(u, (set(), 0))[1] > MAX_BODY_SIZE]
+        known = {r.imap_uid: r for r in rows if r.imap_uid is not None}
+
+        # 1) Mails déjà connus : drapeaux et tags mis à jour, sans retélécharger le contenu.
+        present = {int(u) for u in uids}
+        oldest = min(present) if present else None
+        for uid, row in known.items():
+            if uid not in present:
+                if oldest is not None and uid >= oldest:
+                    db.delete(row)  # supprimé ou déplacé sur le serveur
+                continue
+            flags = info.get(str(uid).encode(), (set(), 0))[0]
+            replied = "\\Answered" in flags or row.graph_id.split(":", 2)[-1] in sent
+            _set_tags(row, address, replied, "\\Seen" in flags)
+
+        # 2) Nouveaux mails, les plus récents d'abord (le reste arrive aux passages suivants).
+        new = [u for u in reversed(uids) if int(u) not in known][:NEW_PER_SYNC]
+        small = [u for u in new if info.get(u, (set(), 0))[1] <= MAX_BODY_SIZE]
+        big = [u for u in new if info.get(u, (set(), 0))[1] > MAX_BODY_SIZE]
         items = _fetch(conn, small, "(BODY.PEEK[])")
         items += _fetch(conn, big, f"(BODY.PEEK[HEADER.FIELDS ({HEADER_FIELDS})])")
 
@@ -244,8 +282,6 @@ def sync_inbox(db: Session, box: Mailbox, conn=None) -> int:
             uid_m = re.search(rb"UID (\d+)", meta)
             uid = uid_m.group(1) if uid_m else b""
             p = parse_message(raw, info.get(uid, (set(), 0))[0], uid.decode() or "?")
-            replied = p["answered"] or p["message_id"] in sent
-            tag = outlook.classify(p["sender_email"], p["subject"], p["preview"], address, replied)
             # Clé propre à la boîte : un même mail reçu dans deux boîtes apparaît dans chacune.
             key = f"imap:{box.id}:{p['message_id']}"[:400]
             row = db.scalar(select(MailMessage).where(MailMessage.graph_id == key))
@@ -253,16 +289,14 @@ def sync_inbox(db: Session, box: Mailbox, conn=None) -> int:
                 row = MailMessage(graph_id=key, mailbox_id=box.id, received_at=p["received_at"])
                 db.add(row)
                 created += 1
+            row.imap_uid = int(uid) if uid else None
             row.conversation_id = p["thread"]
             row.subject = p["subject"]
             row.sender_name = p["sender_name"]
             row.sender_email = p["sender_email"]
             row.preview = p["preview"]
             row.web_link = box.webmail_url.strip()
-            row.is_read = p["is_read"]
-            row.auto_tag = tag
-            if replied and row.manual_tag in ("a_repondre", "urgent"):
-                row.manual_tag = "fait"  # la réponse est partie : on referme automatiquement
+            _set_tags(row, address, p["answered"] or p["message_id"] in sent, p["is_read"])
         box.last_synced_at, box.last_error = utcnow(), ""
         db.commit()
         return created
@@ -274,6 +308,13 @@ def sync_inbox(db: Session, box: Mailbox, conn=None) -> int:
     finally:
         if own:
             _logout(conn)
+
+
+def _set_tags(row: MailMessage, address: str, replied: bool, is_read: bool) -> None:
+    row.is_read = is_read
+    row.auto_tag = outlook.classify(row.sender_email, row.subject, row.preview, address, replied)
+    if replied and row.manual_tag in ("a_repondre", "urgent"):
+        row.manual_tag = "fait"  # la réponse est partie : on referme automatiquement
 
 
 def test_connection(box: Mailbox) -> str:
