@@ -95,7 +95,7 @@ function Mailboxes() {
             <Field label="Ordre d'affichage"><input type="number" value={edit.position} onChange={(e) => set("position", Number(e.target.value))} /></Field>
             <label className="flex items-center gap-2 self-end pb-2 text-sm"><input type="checkbox" className="!w-auto" checked={edit.active} onChange={(e) => set("active", e.target.checked)} /> Active (relue toutes les 5 minutes)</label>
             <div className="sm:col-span-2"><ErrorMsg error={save.error} /></div>
-            <div className="flex justify-end gap-2 sm:col-span-2"><Button type="button" variant="ghost" onClick={() => setEdit(null)}>Annuler</Button><Button type="submit" busy={save.isPending}>Enregistrer</Button></div>
+            <div className="flex flex-wrap justify-end gap-2 sm:col-span-2"><Button type="button" variant="ghost" onClick={() => setEdit(null)}>Annuler</Button><Button type="submit" busy={save.isPending}>Enregistrer</Button></div>
           </form>
         </Modal>
       )}
@@ -312,9 +312,9 @@ export default function Settings({ user }: { user: User }) {
   return (
     <>
       <PageHeader title="Paramètres" subtitle="Connexions aux services, sécurité du compte et utilisateurs." />
-      <div className="mb-6 flex gap-2 border-b border-slate-200">
+      <div className="mb-6 flex gap-1 overflow-x-auto border-b border-slate-200 sm:gap-2">
         {tabs.map(([k, label]) => (
-          <button key={k} onClick={() => setTab(k)} className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${tab === k ? "border-brand-600 text-brand-700" : "border-transparent text-slate-500 hover:text-slate-800"}`}>{label}</button>
+          <button key={k} onClick={() => setTab(k)} className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium sm:px-4 ${tab === k ? "border-brand-600 text-brand-700" : "border-transparent text-slate-500 hover:text-slate-800"}`}>{label}</button>
         ))}
       </div>
       {tab === "securite" && <Security user={user} />}

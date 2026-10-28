@@ -129,7 +129,7 @@ export function FormModal({
           </div>
         ))}
         <div className="sm:col-span-2"><ErrorMsg error={error} /></div>
-        <div className="flex justify-end gap-2 sm:col-span-2">
+        <div className="flex flex-wrap justify-end gap-2 sm:col-span-2">
           <Button type="button" variant="ghost" onClick={onClose}>Annuler</Button>
           <Button type="submit" busy={busy}>{submitLabel}</Button>
         </div>
@@ -224,7 +224,7 @@ export function ResourcePage({
           <Empty>{empty ?? "Rien ici pour l'instant."}</Empty>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[600px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-400">
                   {columns.map((c) => (

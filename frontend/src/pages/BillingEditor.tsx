@@ -37,8 +37,8 @@ function AiImprove({ docId, current, onApply, onClose }: {
         <Field label="Consigne (facultatif)" hint="Ex : détaille le périmètre de chaque prestation, ajoute les conditions de paiement, ton plus commercial…">
           <textarea rows={2} value={instructions} onChange={(e) => setInstructions(e.target.value)} placeholder="Laissez vide pour une relecture générale : intitulés, clarté, conditions." />
         </Field>
-        <div className="flex items-center gap-3">
-          <Button busy={ask.isPending} onClick={() => ask.mutate()}>{p ? "Proposer à nouveau" : "Proposer une version améliorée"}</Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button className="shrink-0" busy={ask.isPending} onClick={() => ask.mutate()}>{p ? "Proposer à nouveau" : "Proposer une version améliorée"}</Button>
           <span className="text-xs text-slate-400">Les prix, quantités et taux de TVA ne changent pas, sauf si vous le demandez.</span>
         </div>
         <ErrorMsg error={ask.error} />
@@ -46,19 +46,19 @@ function AiImprove({ docId, current, onApply, onClose }: {
           <div className="space-y-3 rounded border border-brand-600/30 bg-brand-50/40 p-4">
             {p.changes.length > 0 && <ul className="list-disc pl-5 text-xs text-slate-600">{p.changes.map((c, i) => <li key={i}>{c}</li>)}</ul>}
             <p><span className="text-slate-400">Objet : </span><b>{p.title}</b></p>
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full min-w-[420px] text-sm">
               <thead><tr className="text-left text-xs uppercase text-slate-400"><th className="py-1">Désignation</th><th className="text-right">Qté</th><th className="text-right">PU HT</th><th className="text-right">TVA</th></tr></thead>
               <tbody className="divide-y divide-slate-200">
                 {p.lines.map((l, i) => (
                   <tr key={i}><td className="whitespace-pre-line py-1.5 pr-3">{l.description}</td><td className="text-right">{l.quantity}</td><td className="text-right">{fmtMoney(l.unit_price)}</td><td className="text-right">{l.vat_rate} %</td></tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
             {p.notes && <p className="whitespace-pre-line text-xs text-slate-600"><span className="text-slate-400">Notes / conditions : </span>{p.notes}</p>}
             <p className={after.ht !== before.ht ? "font-medium text-amber-700" : "text-xs text-slate-500"}>
               Total HT : {fmtMoney(before.ht)} → {fmtMoney(after.ht)}{after.ht !== before.ht && " (le total a changé : vérifiez les prix)"}
             </p>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button variant="ghost" onClick={onClose}>Garder ma version</Button>
               <Button onClick={() => { onApply(p); onClose(); }}>Appliquer au devis</Button>
             </div>
@@ -171,12 +171,12 @@ export default function BillingEditor() {
             <fieldset disabled={!editable}>
               <div className="space-y-3">
                 {lines.map((l, i) => (
-                  <div key={i} className="grid grid-cols-[1fr_70px_100px_80px_auto] items-start gap-2">
-                    <textarea rows={1} placeholder="Désignation" value={l.description} onChange={(e) => setLine(i, "description", e.target.value)} />
-                    <input type="number" step="any" min="0" value={l.quantity} onChange={(e) => setLine(i, "quantity", Number(e.target.value))} title="Quantité" />
-                    <input type="number" step="0.01" value={l.unit_price} onChange={(e) => setLine(i, "unit_price", Number(e.target.value))} title="Prix unitaire HT" />
+                  <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] items-start gap-2 rounded border border-slate-200 p-2 sm:grid-cols-[1fr_70px_100px_80px_auto] sm:border-0 sm:p-0">
+                    <textarea rows={1} placeholder="Désignation" className="col-span-4 sm:col-span-1" value={l.description} onChange={(e) => setLine(i, "description", e.target.value)} />
+                    <input type="number" step="any" min="0" value={l.quantity} onChange={(e) => setLine(i, "quantity", Number(e.target.value))} title="Quantité" aria-label="Quantité" />
+                    <input type="number" step="0.01" value={l.unit_price} onChange={(e) => setLine(i, "unit_price", Number(e.target.value))} title="Prix unitaire HT" aria-label="Prix unitaire HT" />
                     <select value={l.vat_rate} onChange={(e) => setLine(i, "vat_rate", Number(e.target.value))} title="TVA">{[20, 10, 5.5, 2.1, 0].map((r) => <option key={r} value={r}>{r} %</option>)}</select>
-                    <button type="button" className="px-2 pt-2 text-red-500 disabled:opacity-30" disabled={lines.length === 1} onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}>✕</button>
+                    <button type="button" className="px-2 pt-2 text-red-500 disabled:opacity-30" disabled={lines.length === 1} onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))} aria-label="Supprimer la ligne">✕</button>
                   </div>
                 ))}
               </div>

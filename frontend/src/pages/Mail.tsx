@@ -48,8 +48,8 @@ function Reader({ id, onTag, boxName, onClose }: { id: number; onTag: (tag: stri
   const c = q.data;
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-slate-200 px-5 py-2.5">
-        <button className="text-sm text-slate-500 hover:text-slate-800 lg:hidden" onClick={onClose}>← Retour</button>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2.5 sm:px-5">
+        <button className="whitespace-nowrap text-sm text-slate-500 hover:text-slate-800 lg:hidden" onClick={onClose}>← Retour</button>
         <div className="flex flex-wrap items-center gap-1.5">
           {TAG_ACTIONS.map(([k, label]) => (
             <button key={k} onClick={() => onTag(k)} className={cx("rounded px-2.5 py-1 text-xs font-medium ring-1 transition", c?.tag === k ? "bg-stone-900 text-white ring-stone-900" : "text-slate-600 ring-slate-200 hover:bg-slate-50")}>{label}</button>
@@ -204,30 +204,35 @@ export default function MailPage({ user }: { user: User }) {
       {params.get("error") && <div className="mb-3"><ErrorMsg error={params.get("error")} /></div>}
       <ErrorMsg error={sync.error} />
 
-      <div className="grid overflow-hidden rounded-md border border-slate-200 bg-white lg:h-[calc(100vh-9rem)] lg:grid-cols-[200px_minmax(300px,380px)_1fr]">
+      <div className="grid grid-cols-1 overflow-hidden rounded-md border border-slate-200 bg-white lg:h-[calc(100vh-9rem)] lg:grid-cols-[200px_minmax(300px,380px)_1fr]">
         {/* Boîtes et filtres */}
-        <aside className="border-b border-slate-200 bg-stone-50 p-3 lg:border-b-0 lg:border-r">
+        <aside className={cx("min-w-0 border-b border-slate-200 bg-stone-50 p-3 lg:block lg:border-b-0 lg:border-r", openId !== null && "hidden")}>
           <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Boîtes</p>
+          {/* Sur mobile : puces défilables ; sur ordinateur : liste verticale */}
+          <div className="-mx-3 flex gap-1 overflow-x-auto px-3 pb-1 lg:mx-0 lg:block lg:px-0 lg:pb-0">
           {sources.map(([k, label, n, err]) => (
             <button key={k} onClick={() => pick(k)} title={err ? `Dernière synchronisation en échec : ${err}` : undefined}
-              className={cx("flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm", box === k ? "bg-stone-900 text-white" : "text-slate-700 hover:bg-white")}>
+              className={cx("flex shrink-0 items-center justify-between gap-2 whitespace-nowrap rounded px-2 py-1.5 text-left text-sm lg:w-full", box === k ? "bg-stone-900 text-white" : "text-slate-700 hover:bg-white")}>
               <span className="flex min-w-0 items-center gap-2 truncate">{err && <span className="h-2 w-2 shrink-0 rounded-full bg-red-500" />}{label}</span>
               {n > 0 && <span className={cx("rounded-full px-1.5 text-[11px]", box === k ? "bg-white/20" : "bg-amber-100 text-amber-800")}>{n}</span>}
             </button>
           ))}
-          <p className="mb-1 mt-4 px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Afficher</p>
+          </div>
+          <p className="mb-1 mt-3 px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400 lg:mt-4">Afficher</p>
+          <div className="-mx-3 flex gap-1 overflow-x-auto px-3 pb-1 lg:mx-0 lg:block lg:px-0 lg:pb-0">
           {FILTERS.map(([k, label]) => (
             <button key={k} onClick={() => { setFilter(k); setOpenId(null); }}
-              className={cx("flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm", filter === k ? "bg-brand-600 text-white" : "text-slate-700 hover:bg-white")}>
+              className={cx("flex shrink-0 items-center justify-between gap-2 whitespace-nowrap rounded px-2 py-1.5 text-left text-sm lg:w-full", filter === k ? "bg-brand-600 text-white" : "text-slate-700 hover:bg-white")}>
               <span>{label}</span>{counts[k] !== undefined && <span className="text-[11px] opacity-70">{counts[k]}</span>}
             </button>
           ))}
-          <button className="mt-4 px-2 text-xs text-brand-600 hover:underline" onClick={() => setHelp(true)}>Comment sont attribués les tags ?</button>
+          </div>
+          <button className="mt-3 px-2 text-xs lg:mt-4 text-brand-600 hover:underline" onClick={() => setHelp(true)}>Comment sont attribués les tags ?</button>
           {current?.last_error && <p className="mt-3 rounded bg-red-50 px-2 py-1.5 text-xs text-red-800">Synchronisation en échec : {current.last_error}</p>}
         </aside>
 
         {/* Liste */}
-        <section className={cx("flex min-h-0 flex-col border-b border-slate-200 lg:border-b-0 lg:border-r", openId !== null && "hidden lg:flex")}>
+        <section className={cx("flex min-h-0 min-w-0 flex-col border-b border-slate-200 lg:border-b-0 lg:border-r", openId !== null && "hidden lg:flex")}>
           <div className="border-b border-slate-200 p-2.5"><input type="search" placeholder="Rechercher : objet, expéditeur, texte…" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {mails.isLoading ? <Loading /> : list.length === 0 ? <div className="p-4"><Empty>{q ? `Aucun mail ne correspond à « ${q} ».` : filter === "todo" ? "Rien à répondre pour l'instant." : "Aucun mail."}</Empty></div> : (

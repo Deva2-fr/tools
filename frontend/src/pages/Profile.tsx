@@ -68,8 +68,8 @@ export default function Profile({ me }: { me: User }) {
   return (
     <>
       <PageHeader title={u.name} subtitle={`${u.email} · ${ROLE[u.role] ?? u.role}${u.signer_roles.length ? ` · ${u.signer_roles.map((r) => SIGNER[r]).join(", ")} (signataire des notes de frais)` : ""}`}
-        action={<div className="flex gap-2">{!u.is_active && <Badge tone="red">Désactivé</Badge>}<Badge tone={u.totp_enabled ? "green" : "amber"}>{u.totp_enabled ? "2FA activée" : "2FA non activée"}</Badge></div>} />
-      <div className="mb-6 grid gap-px overflow-hidden rounded-md border border-slate-300 bg-slate-300 sm:grid-cols-2 lg:grid-cols-6">
+        action={<div className="flex flex-wrap gap-2">{!u.is_active && <Badge tone="red">Désactivé</Badge>}<Badge tone={u.totp_enabled ? "green" : "amber"}>{u.totp_enabled ? "2FA activée" : "2FA non activée"}</Badge></div>} />
+      <div className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-300 bg-slate-300 lg:grid-cols-6">
         <Stat label="Notes de frais" value={ex.count} sub={`${ex.year_count} cette année · ${fmtMoney(ex.year_total)}`} to="/notes-de-frais" />
         <Stat label="Sans justificatif" value={ex.without_receipt} tone={ex.without_receipt ? "text-amber-700" : ""} sub="notes à compléter" />
         <Stat label="Abonnements" value={subs.active} sub={`${fmtMoney(subs.annual_cost)} HT / an${subs.count > subs.active ? ` · ${subs.count - subs.active} inactif(s)` : ""}`} to="/abonnements" />

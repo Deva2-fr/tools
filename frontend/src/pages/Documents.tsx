@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Row, api, apiUpload, downloadFile } from "../api";
 import { useRefOptions } from "../components";
-import { Badge, Button, Card, Empty, ErrorMsg, Field, Loading, PageHeader, fmtDate } from "../ui";
+import { Badge, Button, Card, Empty, ErrorMsg, Field, Loading, PageHeader, fmtDate, TableWrap } from "../ui";
 
 const CATS: [string, string][] = [["legal", "Juridique (Kbis, statuts)"], ["contrat", "Contrat"], ["assurance", "Assurance"], ["facture", "Facture fournisseur"], ["rh", "RH"], ["autre", "Autre"]];
 const size = (n: number) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} Mo` : `${Math.ceil(n / 1024)} Ko`);
@@ -38,13 +38,13 @@ export default function Documents() {
       </Card>
       <Card title="Fichiers" action={<div className="w-56"><input placeholder="Rechercher…" value={q} onChange={(e) => setQ(e.target.value)} /></div>}>
         {list.isLoading ? <Loading /> : !list.data?.length ? <Empty>Aucun document.</Empty> : (
-          <table className="w-full text-sm"><tbody className="divide-y divide-slate-100">
+          <TableWrap><table className="w-full min-w-[480px] text-sm"><tbody className="divide-y divide-slate-100">
             {list.data.map((r) => <tr key={r.id}>
               <td className="py-2.5 pr-3"><button className="font-medium text-brand-600" onClick={() => downloadFile(`/files/${r.id}/download`, r.original_name)}> {r.name}</button><span className="block text-xs text-slate-400">{r.original_name} · {size(r.size)}</span></td>
               <td className="pr-3"><Badge>{CATS.find(([k]) => k === r.category)?.[1] ?? r.category}</Badge></td><td className="pr-3 text-slate-500">{names[r.company_id] ?? ""}</td>
               <td className="pr-3">{r.expires_on && <Badge tone={r.expires_on < today ? "red" : "amber"}>Expire le {fmtDate(r.expires_on)}</Badge>}</td>
               <td className="text-right"><button className="text-xs text-red-500" onClick={() => confirm("Supprimer ce fichier ?") && del.mutate(r.id)}>Supprimer</button></td></tr>)}
-          </tbody></table>
+          </tbody></table></TableWrap>
         )}
       </Card>
     </>

@@ -200,7 +200,7 @@ export default function Expenses({ user }: { user: User }) {
             <ErrorMsg error={save.error} />
             {done && <p className="rounded border border-emerald-700/30 px-3 py-2 text-sm text-emerald-800">{done}</p>}
             {driveMsg && <p className="rounded border border-amber-600/30 bg-amber-50 px-3 py-2 text-sm text-amber-800">{driveMsg}</p>}
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               {editId && <Button type="button" variant="ghost" onClick={() => { setEditId(null); setF(blank(user)); resetFiles(); }}>Annuler la modification</Button>}
               <Button type="submit" busy={save.isPending}> Enregistrer et télécharger le PDF</Button>
             </div>
@@ -216,7 +216,7 @@ export default function Expenses({ user }: { user: User }) {
         <ErrorMsg error={retry.error} />
         {list.isLoading ? <Loading /> : !list.data?.length ? <Empty>Aucune note de frais pour l'instant.</Empty> : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[680px] text-sm">
               <thead><tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-400"><th className="py-2">Date</th><th>Utilisateur</th><th>Motif</th><th>Catégorie</th><th className="text-right">TTC</th><th className="text-right">TVA</th><th /></tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {list.data.map((e) => (

@@ -42,7 +42,7 @@ export function ProjectFormModal({ initial, id, onClose }: { initial: ProjectFor
           <input type="checkbox" checked={f.public_status} onChange={(e) => set("public_status", e.target.checked)} /> Afficher sur la page de statut publique (<code>/statut</code> : seulement le nom et l'état)
         </label>
         <div className="sm:col-span-2"><ErrorMsg error={save.error} /></div>
-        <div className="flex justify-end gap-2 sm:col-span-2">
+        <div className="flex flex-wrap justify-end gap-2 sm:col-span-2">
           <Button type="button" variant="ghost" onClick={onClose}>Annuler</Button>
           <Button type="submit" busy={save.isPending}>Enregistrer</Button>
         </div>

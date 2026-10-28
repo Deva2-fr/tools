@@ -91,7 +91,7 @@ export default function SignaturePad({ userId, defaultName, onClose, onCreated }
           </Field>
         )}
         <ErrorMsg error={save.error} />
-        <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Annuler</Button><Button disabled={!ready} busy={save.isPending} onClick={() => save.mutate()}>Enregistrer la signature</Button></div>
+        <div className="flex flex-wrap justify-end gap-2"><Button variant="ghost" onClick={onClose}>Annuler</Button><Button disabled={!ready} busy={save.isPending} onClick={() => save.mutate()}>Enregistrer la signature</Button></div>
       </div>
     </Modal>
   );

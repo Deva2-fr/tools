@@ -36,7 +36,7 @@ function ServerModal({ projectId, server, onClose }: { projectId: number; server
         </div>
         <div className="sm:col-span-2"><Field label="Notes"><textarea rows={2} value={f.notes} onChange={(e) => set("notes", e.target.value)} /></Field></div>
         <div className="sm:col-span-2"><ErrorMsg error={save.error} /></div>
-        <div className="flex justify-end gap-2 sm:col-span-2">
+        <div className="flex flex-wrap justify-end gap-2 sm:col-span-2">
           <Button type="button" variant="ghost" onClick={onClose}>Annuler</Button>
           <Button type="submit" busy={save.isPending}>Enregistrer</Button>
         </div>
@@ -60,7 +60,7 @@ function TechModal({ projectId, tech, onClose }: { projectId: number; tech?: Tec
         <Field label="Catégorie"><input value={f.category} placeholder="Serveur web, base de données…" onChange={(e) => setF({ ...f, category: e.target.value })} /></Field>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.watch_cve} onChange={(e) => setF({ ...f, watch_cve: e.target.checked })} /> Surveiller les failles de sécurité (CVE)</label>
         <ErrorMsg error={save.error} />
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>Annuler</Button>
           <Button type="submit" busy={save.isPending}>Enregistrer</Button>
         </div>
@@ -116,7 +116,7 @@ export default function ProjectDetail() {
     <>
       <Link to="/projets" className="text-sm text-slate-500 hover:text-brand-600">← Tous les projets</Link>
       <PageHeader title={p.name} subtitle={p.description || undefined}
-        action={<div className="flex gap-2">
+        action={<div className="flex flex-wrap gap-2">
           <Button variant="soft" busy={checkNow.isPending} onClick={() => checkNow.mutate()}>Vérifier maintenant</Button>
           <Button variant="ghost" onClick={() => setEditing(true)}>Modifier</Button>
           <Button variant="danger" onClick={() => confirm(`Supprimer « ${p.name} » et tout son historique ?`) && del.mutate()}>Supprimer</Button>
@@ -160,7 +160,7 @@ export default function ProjectDetail() {
             </div>
           )}
         </Card>
-        <Card title="Technologies" className="lg:col-span-2" action={<div className="flex gap-2">
+        <Card title="Technologies" className="lg:col-span-2" action={<div className="flex flex-wrap gap-2">
           <Button variant="ghost" busy={scan.isPending} onClick={() => scan.mutate()}>Chercher des failles</Button>
           <Button variant="soft" onClick={() => setTech("new")}>+ Technologie</Button></div>}>
           <ErrorMsg error={scan.error} />
