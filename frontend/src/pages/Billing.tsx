@@ -34,15 +34,20 @@ export default function Billing() {
   const qc = useQueryClient();
   const qonto = useQuery({ queryKey: ["billing-qonto"], queryFn: () => api<{ configured: boolean; last_synced_at: string | null }>("/billing/qonto") });
   const sync = useMutation({ mutationFn: () => api<{ invoices: number; quotes: number; created: number; warnings: string[] }>("/billing/qonto/sync", "POST"), onSuccess: () => qc.invalidateQueries() });
+  const del = useMutation({ mutationFn: (id: number) => api(`/billing/${id}`, "DELETE"), onSuccess: () => qc.invalidateQueries() });
+  const remove = (d: Row) => {
+    const what = d.provider === "qonto" ? "Supprimer ce devis dans le Hub ET dans Qonto (il n'a pas encore été validé) ?" : d.kind === "quote" ? "Supprimer ce devis ?" : "Supprimer ce brouillon de facture ?";
+    if (confirm(what)) del.mutate(d.id);
+  };
   const viaQonto = !!qonto.data?.configured;
   const s = sum.data;
   return (
     <>
       <PageHeader title="Devis & factures" subtitle={viaQonto ? "Vos devis et factures Qonto, importés automatiquement : CA, encaissements, retards et relances." : "Créez, émettez et suivez vos devis et factures. Numérotation continue automatique, PDF prêt à envoyer."}
         action={<div className="flex flex-wrap gap-2">
-          <Button variant="ghost" onClick={() => downloadFile("/billing/export/csv", "devis-factures.csv")}>Export comptable (CSV)</Button>
-          <Button variant="soft" onClick={() => nav("/facturation/nouveau?kind=quote")}>+ Devis</Button>
-          {viaQonto ? <Button busy={sync.isPending} onClick={() => sync.mutate()}>Synchroniser Qonto</Button>
+          <Button data-tour="billing-export" variant="ghost" onClick={() => downloadFile("/billing/export/csv", "devis-factures.csv")}>Export comptable (CSV)</Button>
+          <Button data-tour="billing-new-quote" variant="soft" onClick={() => nav("/facturation/nouveau?kind=quote")}>+ Devis</Button>
+          {viaQonto ? <Button data-tour="billing-sync" busy={sync.isPending} onClick={() => sync.mutate()}>Synchroniser Qonto</Button>
             : <Button onClick={() => nav("/facturation/nouveau?kind=invoice")}>+ Facture</Button>}</div>} />
       {qonto.data && (
         <p className="mb-4 text-sm text-slate-500">
@@ -55,7 +60,7 @@ export default function Billing() {
       )}
       <div className="mb-4"><ErrorMsg error={sync.error} /></div>
       {s && (
-        <div className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-300 bg-slate-300 lg:grid-cols-[1fr_1fr_1fr_1fr_1.5fr]">
+        <div data-tour="billing-kpis" className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-300 bg-slate-300 lg:grid-cols-[1fr_1fr_1fr_1fr_1.5fr]">
           {([["Facturé " + s.year + " (HT)", fmtMoney(s.invoiced_ht), ""], ["Encaissé " + s.year, fmtMoney(s.collected), "text-emerald-800"], ["Reste à encaisser", fmtMoney(s.outstanding), s.outstanding ? "text-amber-700" : ""],
             [`En retard (${s.overdue_count})`, fmtMoney(s.overdue), s.overdue ? "text-red-700" : ""]] as const).map(([l, v, tone]) => (
             <div key={l} className="bg-white p-4"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{l}</p><p className={cx("mt-2 font-serif text-2xl", tone)}>{v}</p></div>
@@ -63,27 +68,31 @@ export default function Billing() {
           <div className="col-span-2 bg-white p-4 lg:col-span-1"><p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">CA mensuel HT · {s.open_quotes_count} devis en attente ({fmtMoney(s.open_quotes_amount)})</p><Bars values={s.monthly_ht} /></div>
         </div>
       )}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <div data-tour="billing-filters" className="mb-4 flex flex-wrap items-center gap-2">
         {([["all", "Tous"], ["quote", "Devis"], ["invoice", "Factures"], ["overdue", "En retard"]] as const).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)} className={cx("rounded px-3 py-1.5 text-sm font-medium", tab === k ? "bg-brand-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200")}>{l}</button>
         ))}
         <div className="ml-auto w-60"><input placeholder="N° ou objet…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
       </div>
+      <ErrorMsg error={del.error} />
       <Card>
+        <div data-tour="billing-list">
         {list.isLoading ? <Loading /> : !list.data?.length ? <Empty>Aucun document.</Empty> : (
           <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
-            <thead><tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-400"><th className="py-2">Numéro</th><th>Type</th><th>Client</th><th>Date</th><th>Échéance</th><th className="text-right">Total TTC</th><th className="text-right">Reste</th><th className="pl-4">Statut</th></tr></thead>
+            <thead><tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-400"><th className="py-2">Numéro</th><th>Type</th><th>Client</th><th>Date</th><th>Échéance</th><th className="text-right">Total TTC</th><th className="text-right">Reste</th><th className="pl-4">Statut</th><th className="w-10"><span className="sr-only">Actions</span></th></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {list.data.map((d) => (
                 <tr key={d.id} className="hover:bg-slate-50">
-                  <td className="py-2.5"><Link className="font-medium text-brand-600" to={`/facturation/${d.id}`}>{d.number ?? "Brouillon"}</Link>{d.provider === "qonto" && <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Qonto</span>}{d.title && <span className="block text-xs text-slate-400">{d.title}</span>}</td>
+                  <td className="py-2.5"><Link className="font-medium text-brand-600" to={`/facturation/${d.id}`}>{d.number ?? "Brouillon"}</Link>{d.provider === "qonto" ? <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Qonto</span> : d.kind === "quote" && <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-amber-700" title="Brouillon de travail, pas encore envoyé vers Qonto">Hub</span>}{d.title && <span className="block text-xs text-slate-400">{d.title}</span>}</td>
                   <td>{d.kind === "quote" ? "Devis" : "Facture"}</td><td>{d.company_name || "—"}</td><td>{fmtDate(d.issue_date)}</td><td>{fmtDate(d.due_date)}</td>
                   <td className="text-right font-medium">{fmtMoney(d.total_ttc)}</td><td className="text-right">{d.remaining ? fmtMoney(d.remaining) : "—"}</td>
                   <td className="pl-4">{d.is_overdue ? <Badge tone="red">En retard</Badge> : <Badge tone={STATUS[d.status]?.[1]}>{STATUS[d.status]?.[0] ?? d.status}</Badge>}</td>
+                  <td className="text-right">{d.deletable && <button className="rounded px-2 py-1 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Supprimer" aria-label="Supprimer" disabled={del.isPending} onClick={() => remove(d)}>🗑</button>}</td>
                 </tr>
               ))}
             </tbody></table></div>
         )}
+        </div>
       </Card>
     </>
   );

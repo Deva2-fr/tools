@@ -74,7 +74,7 @@ function GoogleCalendar() {
   const s = st.data;
   if (!s) return null;
   return (
-    <div className="mb-6 rounded-md border border-slate-200 bg-white p-4">
+    <div data-tour="tax-gcal" className="mb-6 rounded-md border border-slate-200 bg-white p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm">
           <p className="font-medium text-slate-900">Google Agenda</p>
@@ -143,7 +143,7 @@ export default function Taxes() {
     <>
       <PageHeader title="Impôts, TVA & déclarations" subtitle="Ne ratez plus une échéance : le Hub vous prévient avant chaque date limite."
         action={<div className="flex flex-wrap gap-2">
-          <a href="/api/taxes/calendar.ics"><Button variant="ghost" type="button"> Exporter vers mon agenda</Button></a>
+          <a data-tour="tax-ics" href="/api/taxes/calendar.ics"><Button variant="ghost" type="button"> Exporter vers mon agenda</Button></a>
           <Button onClick={() => setEdit("new")}>+ Échéance</Button></div>} />
       {msg && <p className="mb-4 rounded bg-brand-50 px-3 py-2 text-sm text-brand-700">{msg}</p>}
       <GoogleCalendar />
@@ -153,7 +153,7 @@ export default function Taxes() {
         </p>
       )}
       {next && (
-        <div className={`mb-6 flex flex-wrap items-center justify-between gap-4 rounded-md border p-5 ${TONE[urgency(next)]}`}>
+        <div data-tour="tax-next" className={`mb-6 flex flex-wrap items-center justify-between gap-4 rounded-md border p-5 ${TONE[urgency(next)]}`}>
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.1em] opacity-80">Prochaine échéance</p>
             <p className="mt-1 font-serif text-3xl first-letter:uppercase">{longDate(next.due_date)}</p>

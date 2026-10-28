@@ -192,11 +192,11 @@ export default function MailPage({ user }: { user: User }) {
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="font-serif text-3xl text-slate-900">Mails</h1>
+        <h1 data-tour="page-title" className="font-serif text-3xl text-slate-900">Mails</h1>
         <div className="flex items-center gap-2">
           <span className="hidden text-xs text-slate-400 sm:inline">Lecture seule · actualisé toutes les 5 min</span>
           {webmail && <a className="inline-flex items-center rounded px-3 py-2 text-sm font-medium text-brand-600 ring-1 ring-slate-200 hover:bg-slate-50" href={webmail} target="_blank" rel="noreferrer noopener">Webmail ↗</a>}
-          <Button variant="soft" busy={sync.isPending} onClick={() => sync.mutate()}>Actualiser</Button>
+          <Button data-tour="mail-refresh" variant="soft" busy={sync.isPending} onClick={() => sync.mutate()}>Actualiser</Button>
           {user.role === "admin" && box === "microsoft" && <Button variant="ghost" onClick={() => confirm("Déconnecter la boîte Microsoft 365 ?") && disconnect.mutate()}>Déconnecter</Button>}
         </div>
       </div>
@@ -209,7 +209,7 @@ export default function MailPage({ user }: { user: User }) {
         <aside className={cx("min-w-0 border-b border-slate-200 bg-stone-50 p-3 lg:block lg:border-b-0 lg:border-r", openId !== null && "hidden")}>
           <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Boîtes</p>
           {/* Sur mobile : puces défilables ; sur ordinateur : liste verticale */}
-          <div className="-mx-3 flex gap-1 overflow-x-auto px-3 pb-1 lg:mx-0 lg:block lg:px-0 lg:pb-0">
+          <div data-tour="mail-boxes" className="-mx-3 flex gap-1 overflow-x-auto px-3 pb-1 lg:mx-0 lg:block lg:px-0 lg:pb-0">
           {sources.map(([k, label, n, err]) => (
             <button key={k} onClick={() => pick(k)} title={err ? `Dernière synchronisation en échec : ${err}` : undefined}
               className={cx("flex shrink-0 items-center justify-between gap-2 whitespace-nowrap rounded px-2 py-1.5 text-left text-sm lg:w-full", box === k ? "bg-stone-900 text-white" : "text-slate-700 hover:bg-white")}>
@@ -219,7 +219,7 @@ export default function MailPage({ user }: { user: User }) {
           ))}
           </div>
           <p className="mb-1 mt-3 px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400 lg:mt-4">Afficher</p>
-          <div className="-mx-3 flex gap-1 overflow-x-auto px-3 pb-1 lg:mx-0 lg:block lg:px-0 lg:pb-0">
+          <div data-tour="mail-filters" className="-mx-3 flex gap-1 overflow-x-auto px-3 pb-1 lg:mx-0 lg:block lg:px-0 lg:pb-0">
           {FILTERS.map(([k, label]) => (
             <button key={k} onClick={() => { setFilter(k); setOpenId(null); }}
               className={cx("flex shrink-0 items-center justify-between gap-2 whitespace-nowrap rounded px-2 py-1.5 text-left text-sm lg:w-full", filter === k ? "bg-brand-600 text-white" : "text-slate-700 hover:bg-white")}>
@@ -227,14 +227,14 @@ export default function MailPage({ user }: { user: User }) {
             </button>
           ))}
           </div>
-          <button className="mt-3 px-2 text-xs lg:mt-4 text-brand-600 hover:underline" onClick={() => setHelp(true)}>Comment sont attribués les tags ?</button>
+          <button data-tour="mail-help" className="mt-3 px-2 text-xs lg:mt-4 text-brand-600 hover:underline" onClick={() => setHelp(true)}>Comment sont attribués les tags ?</button>
           {current?.last_error && <p className="mt-3 rounded bg-red-50 px-2 py-1.5 text-xs text-red-800">Synchronisation en échec : {current.last_error}</p>}
         </aside>
 
         {/* Liste */}
         <section className={cx("flex min-h-0 min-w-0 flex-col border-b border-slate-200 lg:border-b-0 lg:border-r", openId !== null && "hidden lg:flex")}>
-          <div className="border-b border-slate-200 p-2.5"><input type="search" placeholder="Rechercher : objet, expéditeur, texte…" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div data-tour="mail-search" className="border-b border-slate-200 p-2.5"><input type="search" placeholder="Rechercher : objet, expéditeur, texte…" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
+          <div data-tour="mail-list" className="min-h-0 flex-1 overflow-y-auto">
             {mails.isLoading ? <Loading /> : list.length === 0 ? <div className="p-4"><Empty>{q ? `Aucun mail ne correspond à « ${q} ».` : filter === "todo" ? "Rien à répondre pour l'instant." : "Aucun mail."}</Empty></div> : (
               <ul className="divide-y divide-slate-100">
                 {list.map((m) => (
@@ -264,7 +264,7 @@ export default function MailPage({ user }: { user: User }) {
         </section>
 
         {/* Lecture */}
-        <section className={cx("min-h-[60vh] min-w-0 lg:min-h-0", openId === null && "hidden lg:block")}>
+        <section data-tour="mail-reader" className={cx("min-h-[60vh] min-w-0 lg:min-h-0", openId === null && "hidden lg:block")}>
           {openId !== null ? (
             <Reader id={openId!} boxName={opened?.mailbox_id ? names[opened.mailbox_id] ?? "" : "Microsoft 365"} onClose={() => setOpenId(null)}
               onTag={(tag) => setTag.mutate({ id: openId!, tag })} />

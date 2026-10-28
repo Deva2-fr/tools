@@ -158,7 +158,7 @@ export default function Expenses({ user }: { user: User }) {
           <Field label="Remarques"><input value={f.notes} onChange={(e) => set("notes", e.target.value)} /></Field>
           <div className="sm:col-span-2 lg:col-span-3 border-t border-slate-100 pt-4">
             <p className="mb-2 text-sm font-medium text-slate-800">Signatures <span className="font-normal text-slate-400">— imprimées dans les trois cadres du PDF</span></p>
-            <div className="grid gap-3 md:grid-cols-3">
+            <div data-tour="exp-signatures" className="grid gap-3 md:grid-cols-3">
               {([
                 ["signature_id", "Le demandeur", requester ? { id: requester.id, name: requester.name } : { id: user.id, name: user.name || user.email }],
                 ["president_signature_id", "Le président", signers.data?.president ?? null],
@@ -169,7 +169,7 @@ export default function Expenses({ user }: { user: User }) {
               ))}
             </div>
           </div>
-          <div className="sm:col-span-2 lg:col-span-3">
+          <div data-tour="exp-receipts" className="sm:col-span-2 lg:col-span-3">
             <Field label={`Justificatifs (${keptCount}/10)`} hint="Tickets, factures… PDF, JPG ou PNG (10 Mo max. chacun) : ajoutés à la fin du PDF, dans l'ordre">
               <input key={fileKey} type="file" multiple accept="application/pdf,image/jpeg,image/png" onChange={(e) => { const picked = Array.from(e.target.files ?? []); setNewFiles((x) => [...x, ...picked]); setFileKey((k) => k + 1); }} />
             </Field>
@@ -202,7 +202,7 @@ export default function Expenses({ user }: { user: User }) {
             {driveMsg && <p className="rounded border border-amber-600/30 bg-amber-50 px-3 py-2 text-sm text-amber-800">{driveMsg}</p>}
             <div className="flex flex-wrap justify-end gap-2">
               {editId && <Button type="button" variant="ghost" onClick={() => { setEditId(null); setF(blank(user)); resetFiles(); }}>Annuler la modification</Button>}
-              <Button type="submit" busy={save.isPending}> Enregistrer et télécharger le PDF</Button>
+              <Button data-tour="exp-save" type="submit" busy={save.isPending}> Enregistrer et télécharger le PDF</Button>
             </div>
           </div>
         </form>

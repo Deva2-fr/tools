@@ -26,6 +26,7 @@ def _out(db: Session, d: BillingDoc) -> DocOut:
     out.remaining = billing.remaining(d)
     out.is_overdue = billing.overdue(d)
     out.qonto_editable = bool(qonto_billing.qonto_quote_id(d))
+    out.deletable = qonto_billing.hub_deletable(d)
     return out
 
 
@@ -247,17 +248,23 @@ def update(doc_id: int, body: DocIn, db: Session = Depends(get_db), user: User =
 @router.delete("/{doc_id}", status_code=204)
 def delete(doc_id: int, db: Session = Depends(get_db), user: User = Depends(manager_user)):
     d = _get(db, doc_id)
-    if d.provider == "qonto":
-        raise HTTPException(400, "Devis ou facture de Qonto : supprimez-le dans Qonto, il disparaîtra ici.")
-    # Un devis du Hub n'est qu'un brouillon de travail : supprimable tant qu'il n'est pas accepté.
-    deletable = d.status != "accepted" if d.kind == "quote" else d.status == "draft"
-    if not deletable:
-        raise HTTPException(
-            400,
-            "Devis accepté : il ne peut plus être supprimé."
-            if d.kind == "quote"
-            else "Seuls les brouillons peuvent être supprimés (une facture émise garde son numéro).",
-        )
+    if not qonto_billing.hub_deletable(d):
+        if d.provider == "qonto":
+            msg = (
+                "Devis validé ou importé de Qonto : il se supprime dans Qonto."
+                if d.kind == "quote"
+                else "Facture de Qonto : elle se gère dans Qonto."
+            )
+        elif d.kind == "quote":
+            msg = "Devis accepté : il ne peut plus être supprimé."
+        else:
+            msg = "Seuls les brouillons peuvent être supprimés (une facture émise garde son numéro)."
+        raise HTTPException(400, msg)
+    if d.provider == "qonto":  # devis envoyé depuis le Hub : supprimé aussi dans Qonto
+        try:
+            qonto_billing.delete_quote(db, d)
+        except qonto.QontoError as exc:
+            raise HTTPException(400, str(exc)) from exc
     db.delete(d)
     db.commit()
     audit(db, user.email, f"{d.kind}_deleted", str(doc_id))

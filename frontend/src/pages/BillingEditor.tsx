@@ -137,17 +137,17 @@ export default function BillingEditor() {
           <Badge tone={d.is_overdue ? "red" : STATUS[d.status]?.[1]}>{d.is_overdue ? "En retard" : STATUS[d.status]?.[0]}</Badge>
           {fromQonto ? (d.external_url ? <a className="inline-flex items-center rounded px-3 py-2 text-sm font-medium text-brand-600 ring-1 ring-slate-200 hover:bg-slate-50" href={d.external_url} target="_blank" rel="noreferrer noopener">Ouvrir dans Qonto ↗</a> : <Button variant="ghost" busy={pdf.isPending} onClick={() => pdf.mutate()}> Aperçu PDF</Button>)
             : <Button variant="ghost" busy={pdf.isPending} onClick={() => pdf.mutate()}> PDF</Button>}
-          {d.kind === "quote" && (!fromQonto || qontoEdit) && <Button variant="soft" onClick={() => setAiOpen(true)} disabled={!qontoSt.data?.ai_configured} title={qontoSt.data?.ai_configured ? undefined : "Renseignez la clé API Anthropic dans Paramètres → Intégrations → Assistant IA"}>✨ Améliorer avec l'IA</Button>}
+          {d.kind === "quote" && (!fromQonto || qontoEdit) && <Button data-tour="editor-ai" variant="soft" onClick={() => setAiOpen(true)} disabled={!qontoSt.data?.ai_configured} title={qontoSt.data?.ai_configured ? undefined : "Renseignez la clé API Anthropic dans Paramètres → Intégrations → Assistant IA"}>✨ Améliorer avec l'IA</Button>}
           {!fromQonto && d.kind === "quote" && <>
-            <Button busy={push.isPending} disabled={!qontoSt.data?.oauth_connected} title={qontoSt.data?.oauth_connected ? undefined : "Connectez Qonto : Paramètres → Intégrations → Banque Qonto → Se connecter avec Qonto"}
+            <Button data-tour="editor-push" busy={push.isPending} disabled={!qontoSt.data?.oauth_connected} title={qontoSt.data?.oauth_connected ? undefined : "Connectez Qonto : Paramètres → Intégrations → Banque Qonto → Se connecter avec Qonto"}
               onClick={() => confirm("Envoyer ce devis vers Qonto en brouillon ? Il y sera « en attente de validation » : rien n'est envoyé au client. Vous pourrez encore le modifier ici (les changements sont reportés dans Qonto).") && push.mutate()}>Envoyer vers Qonto (brouillon)</Button>
           </>}
           {!fromQonto && <>
           {d.kind === "quote" && ["sent", "accepted"].includes(d.status) && <Button variant="soft" busy={convert.isPending} onClick={() => convert.mutate()}>→ Transformer en facture</Button>}
           {d.kind === "quote" && d.status === "sent" && <><Button variant="soft" onClick={() => accept.mutate()}>✓ Accepté</Button><Button variant="ghost" onClick={() => refuse.mutate()}>Refusé</Button></>}
           {d.kind === "invoice" && d.status === "sent" && !d.amount_paid && <Button variant="danger" onClick={() => confirm("Annuler cette facture ? Son numéro reste utilisé.") && cancel.mutate()}>Annuler la facture</Button>}
-          {(d.status === "draft" || (d.kind === "quote" && d.status !== "accepted")) && <Button variant="danger" onClick={() => confirm(d.kind === "quote" ? "Supprimer ce devis ?" : "Supprimer ce brouillon ?") && del.mutate()}>Supprimer</Button>}
           </>}
+          {d.deletable && <Button variant="danger" onClick={() => confirm(fromQonto ? "Supprimer ce devis dans le Hub ET dans Qonto (il n'a pas encore été validé) ?" : d.kind === "quote" ? "Supprimer ce devis ?" : "Supprimer ce brouillon ?") && del.mutate()}>Supprimer</Button>}
         </div>} />
       {aiOpen && d && <AiImprove docId={d.id} current={{ title: f.title, notes: f.notes, lines }} onClose={() => setAiOpen(false)}
         onApply={(p) => { setF({ ...f, title: p.title, notes: p.notes }); setLines(p.lines.length ? p.lines : [blankLine()]); }} />}
@@ -194,7 +194,7 @@ export default function BillingEditor() {
           <ErrorMsg error={errors} />
           {editable && (
             <div className="flex flex-wrap justify-end gap-2">
-              <Button variant={qontoEdit ? "primary" : "ghost"} busy={save.isPending} onClick={() => save.mutate()}>{qontoEdit ? "Enregistrer et mettre à jour Qonto" : isQuote ? "Enregistrer" : "Enregistrer le brouillon"}</Button>
+              <Button data-tour="editor-save" variant={qontoEdit ? "primary" : "ghost"} busy={save.isPending} onClick={() => save.mutate()}>{qontoEdit ? "Enregistrer et mettre à jour Qonto" : isQuote ? "Enregistrer (sans envoyer à Qonto)" : "Enregistrer le brouillon"}</Button>
               {!isNew && !isQuote && d?.status === "draft" && <Button busy={issue.isPending} onClick={() => confirm(`Émettre ce ${label.toLowerCase()} ? Un numéro définitif lui sera attribué et il ne sera plus modifiable.`) && issue.mutate()}> Émettre</Button>}
             </div>
           )}

@@ -61,7 +61,7 @@ export default function Projects() {
       <PageHeader title="Projets & serveurs" subtitle="Tous vos sites, leurs serveurs, leurs technologies et leur état en direct."
         action={<Button onClick={() => setAdding(true)}>+ Ajouter un projet</Button>} />
       {isLoading || !data ? <Loading /> : data.length === 0 ? <Empty>Aucun projet pour l'instant.</Empty> : (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div data-tour="projects-list" className="grid gap-4 md:grid-cols-2">
           {data.map((p) => (
             <Link key={p.id} to={`/projets/${p.id}`}>
               <Card className="h-full transition hover:border-brand-500">

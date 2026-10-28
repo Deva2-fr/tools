@@ -26,6 +26,8 @@ import Companies from "./pages/crm/Companies";
 import Contacts from "./pages/crm/Contacts";
 import Pipeline from "./pages/crm/Pipeline";
 import Tasks from "./pages/crm/Tasks";
+import Tour from "./tour/Tour";
+import { TOURS, markTourSeen, tourKey, tourSeen } from "./tour/tours";
 import { Loading, cx } from "./ui";
 
 interface NavItem { to: string; label: string; end?: boolean; manager?: boolean }
@@ -91,6 +93,17 @@ function Shell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [menu]);
   const me = useQuery({ queryKey: ["me"], queryFn: () => api<User>("/auth/me"), retry: false });
+  // Guide interactif : celui d'accueil la toute première fois, puis celui de chaque section à sa 1re visite.
+  const [tour, setTour] = useState<string | null>(null);
+  const uid = me.data?.id;
+  useEffect(() => {
+    if (!uid || tour) return;
+    const key = !tourSeen("welcome", uid) ? "welcome" : tourKey(pathname);
+    if (!key || tourSeen(key, uid)) return;
+    const t = window.setTimeout(() => { markTourSeen(key, uid); setTour(key); }, 1200); // laisse la page se charger
+    return () => window.clearTimeout(t);
+  }, [uid, pathname, tour]);
+  const startGuide = () => { setMenu(false); setTour(tourKey(pathname) ?? "welcome"); };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setSearching((s) => !s); } };
     window.addEventListener("keydown", onKey);
@@ -108,9 +121,10 @@ function Shell() {
     <div className="min-h-screen lg:flex">
       {/* Barre du haut : mobile et tablette */}
       <header className="sticky top-0 z-30 flex h-14 items-center gap-3 bg-[#1d2421] px-4 text-stone-200 lg:hidden">
-        <button onClick={() => setMenu(true)} className="-ml-1 rounded p-1.5 text-xl leading-none hover:bg-white/10" aria-label="Ouvrir le menu">☰</button>
+        <button data-tour="nav" onClick={() => setMenu(true)} className="-ml-1 rounded p-1.5 text-xl leading-none hover:bg-white/10" aria-label="Ouvrir le menu">☰</button>
         <Link to="/" className="font-serif text-lg font-semibold tracking-tight text-stone-50">Deva2</Link>
-        <button onClick={() => setSearching(true)} className="ml-auto rounded border border-stone-700 px-3 py-1 text-sm text-stone-400" aria-label="Rechercher">Rechercher…</button>
+        <button data-tour="search" onClick={() => setSearching(true)} className="ml-auto rounded border border-stone-700 px-3 py-1 text-sm text-stone-400" aria-label="Rechercher">Rechercher…</button>
+        <button data-tour="guide" onClick={startGuide} className="rounded-full border border-stone-600 px-2.5 py-0.5 text-sm font-semibold text-stone-300" aria-label="Guide de la page" title="Guide de la page">?</button>
       </header>
       {menu && <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setMenu(false)} />}
       <aside className={cx("fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col overflow-y-auto bg-[#1d2421] text-stone-300 transition-transform lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:w-60 lg:translate-x-0 lg:shrink-0 lg:transition-none", menu ? "translate-x-0" : "-translate-x-full")}>
@@ -121,10 +135,13 @@ function Shell() {
           </div>
           <button onClick={() => setMenu(false)} className="text-stone-400 hover:text-white lg:hidden" aria-label="Fermer le menu">✕</button>
         </div>
-        <button onClick={() => setSearching(true)} className="mx-3 mb-3 hidden items-center justify-between rounded border border-stone-700 px-3 py-1.5 text-sm text-stone-400 hover:border-stone-500 lg:flex">
+        <button data-tour="search" onClick={() => setSearching(true)} className="mx-3 mb-2 hidden items-center justify-between rounded border border-stone-700 px-3 py-1.5 text-sm text-stone-400 hover:border-stone-500 lg:flex">
           <span>Rechercher…</span><kbd className="rounded bg-stone-800 px-1.5 text-xs text-stone-400">⌘K</kbd>
         </button>
-        <nav className="flex-1 space-y-5 px-3 pb-4">
+        <button data-tour="guide" onClick={startGuide} className="mx-3 mb-3 hidden items-center gap-2 rounded px-3 py-1 text-left text-xs text-stone-400 hover:bg-white/5 hover:text-stone-100 lg:flex">
+          <span className="flex h-4 w-4 items-center justify-center rounded-full border border-stone-500 text-[10px] font-bold">?</span> Guide de cette page
+        </button>
+        <nav data-tour="nav" className="flex-1 space-y-5 px-3 pb-4">
           {SECTIONS.map((sec, i) => {
             const items = sec.items.filter((n) => !n.manager || mgr);
             return items.length ? (
@@ -136,7 +153,7 @@ function Shell() {
           })}
         </nav>
         <div className="border-t border-stone-800 p-4 text-sm">
-          <Link to="/profil" className="block truncate font-medium text-stone-100 hover:underline" title="Mon profil">{user.name || user.email}</Link>
+          <Link data-tour="profile" to="/profil" className="block truncate font-medium text-stone-100 hover:underline" title="Mon profil">{user.name || user.email}</Link>
           <p className="truncate text-xs text-stone-500">{user.email} · {user.role === "admin" ? "Admin" : user.role === "manager" ? "Manager" : "Membre"}</p>
           <button onClick={logout} className="mt-2 text-xs font-medium text-stone-400 hover:text-white">Se déconnecter</button>
         </div>
@@ -175,6 +192,7 @@ function Shell() {
         </div>
       </main>
       {searching && <SearchPalette user={user} onClose={() => setSearching(false)} />}
+      {tour && TOURS[tour] && <Tour key={tour} steps={TOURS[tour]} onClose={() => setTour(null)} />}
     </div>
   );
 }

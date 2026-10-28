@@ -348,6 +348,35 @@ def qonto_quote_id(doc: BillingDoc) -> str | None:
     return None
 
 
+def hub_deletable(doc: BillingDoc) -> bool:
+    """Devis supprimable depuis le Hub : brouillon du Hub non accepté, ou devis créé dans le Hub puis
+    envoyé vers Qonto et encore en attente (supprimé aussi dans Qonto). Facture : brouillon seulement."""
+    if doc.kind != "quote":
+        return doc.provider != "qonto" and doc.status == "draft"
+    if doc.provider == "qonto":
+        return doc.created_by != "Qonto" and bool(qonto_quote_id(doc))
+    return doc.status != "accepted"
+
+
+def delete_quote(db: Session, doc: BillingDoc, client: httpx.Client | None = None) -> None:
+    """Supprime dans Qonto un devis envoyé depuis le Hub (encore en attente). Déjà absent : OK."""
+    qid = qonto_quote_id(doc)
+    if not qid:
+        raise QontoError("Ce devis Qonto est validé ou annulé : il ne peut plus être supprimé.")
+    c = client or _oauth_client(db)
+    try:
+        r = c.delete(f"/quotes/{qid}")
+    except httpx.HTTPError as exc:
+        raise QontoError("Qonto est momentanément injoignable.") from exc
+    finally:
+        if client is None:
+            c.close()
+    if r.status_code in (401, 403):
+        raise QontoError("Qonto refuse la suppression : reconnectez Qonto avec les droits sur les devis.")
+    if r.status_code >= 400 and r.status_code != 404:
+        raise QontoError(f"Qonto refuse la suppression du devis ({r.status_code}).")
+
+
 def update_quote(db: Session, doc: BillingDoc, client: httpx.Client | None = None) -> BillingDoc:
     """Reporte dans Qonto les modifications faites dans le Hub (devis en attente de validation)."""
     qid = qonto_quote_id(doc)

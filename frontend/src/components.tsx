@@ -199,9 +199,10 @@ export function ResourcePage({
         subtitle={subtitle}
         action={
           <div className="flex gap-2">
-            {exportName && <Button variant="ghost" onClick={() => downloadFile(`${endpoint}/export/csv`, `${exportName}.csv`)}>Exporter (CSV)</Button>}
+            {exportName && <Button data-tour="rp-export" variant="ghost" onClick={() => downloadFile(`${endpoint}/export/csv`, `${exportName}.csv`)}>Exporter (CSV)</Button>}
             {canWrite && (
               <Button
+                data-tour="rp-new"
                 onClick={() => {
                   save.reset();
                   setEdit("new");
@@ -213,10 +214,10 @@ export function ResourcePage({
           </div>
         }
       />
-      {headerExtra}
-      <Card>
+      {headerExtra && <div data-tour="rp-extra">{headerExtra}</div>}
+      <Card tour="rp-list">
         {searchable && (
-          <div className="mb-4 max-w-sm"><input placeholder="Rechercher…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+          <div data-tour="rp-search" className="mb-4 max-w-sm"><input placeholder="Rechercher…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         )}
         {list.isLoading ? (
           <Loading />

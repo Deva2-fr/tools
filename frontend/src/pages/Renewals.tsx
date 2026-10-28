@@ -12,7 +12,7 @@ function Summary() {
   const { data } = useQuery({ queryKey: ["subs-sum"], queryFn: () => api<{ annual_total: number; by_kind: Record<string, number>; count: number }>("/subscriptions-summary") });
   if (!data) return null;
   return (
-    <div className="mb-6 grid gap-4 sm:grid-cols-4">
+    <div data-tour="subs-summary" className="mb-6 grid gap-4 sm:grid-cols-4">
       <div className="rounded-md border border-slate-200 bg-white p-4"><p className="text-xs uppercase text-slate-400">Coût annuel HT</p><p className="mt-1 text-xl font-bold">{fmtMoney(data.annual_total)}</p><p className="text-xs text-slate-400">{data.count} abonnements actifs</p></div>
       {Object.entries(data.by_kind).slice(0, 3).map(([k, v]) => <div key={k} className="rounded-md border border-slate-200 bg-white p-4"><p className="text-xs uppercase text-slate-400">{KINDS.find(([x]) => x === k)?.[1]}</p><p className="mt-1 text-xl font-bold">{fmtMoney(v)}<span className="text-xs font-normal text-slate-400"> /an</span></p></div>)}
     </div>

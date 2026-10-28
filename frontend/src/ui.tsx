@@ -22,9 +22,14 @@ export function Button({ variant = "primary", busy, className, children, disable
   );
 }
 
-export function Card({ title, action, children, className }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
+/** Ancre du guide interactif : « card:mes-taches » pour une carte titrée « Mes tâches (3) ». */
+export const tourSlug = (s: string) =>
+  s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\([^)]*\)|[0-9]/g, "").replace(/[^a-z]+/g, "-").replace(/^-|-$/g, "");
+
+export function Card({ title, action, children, className, tour }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string; tour?: string }) {
+  const anchor = tour ?? (typeof title === "string" ? `card:${tourSlug(title)}` : undefined);
   return (
-    <section className={cx("rounded-md border border-slate-200 bg-white", className)}>
+    <section data-tour={anchor} className={cx("rounded-md border border-slate-200 bg-white", className)}>
       {(title || action) && (
         <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-slate-200 px-4 py-3 sm:px-5">
           <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{title}</h2>
@@ -39,11 +44,11 @@ export function Card({ title, action, children, className }: { title?: ReactNode
 export function PageHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: ReactNode }) {
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3 border-b border-slate-300 pb-4 sm:mb-6">
-      <div className="min-w-0">
+      <div data-tour="page-title" className="min-w-0">
         <h1 className="break-words font-serif text-2xl font-semibold leading-tight text-slate-900 sm:text-[28px]">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-slate-500">{subtitle}</p>}
       </div>
-      {action && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{action}</div>}
+      {action && <div data-tour="page-actions" className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{action}</div>}
     </div>
   );
 }

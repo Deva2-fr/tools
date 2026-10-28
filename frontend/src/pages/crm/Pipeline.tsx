@@ -29,13 +29,13 @@ export default function Pipeline() {
   return (
     <>
       <PageHeader title="Pipeline commercial" subtitle="Glissez les cartes d'une colonne à l'autre pour faire avancer vos affaires." action={<Button onClick={() => { save.reset(); setEdit("new"); }}>+ Nouvelle affaire</Button>} />
-      <div className="mb-5 grid grid-cols-3 gap-px overflow-hidden rounded-md border border-slate-300 bg-slate-300">
+      <div data-tour="pipe-stats" className="mb-5 grid grid-cols-3 gap-px overflow-hidden rounded-md border border-slate-300 bg-slate-300">
         {[["En cours", fmtMoney(s.open_amount)], ["Prévision pondérée", fmtMoney(s.forecast)], ["Gagné", fmtMoney(s.won_amount)]].map(([l, v]) => (
           <div key={l} className="bg-white p-4"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{l}</p><p className="mt-1 font-serif text-2xl">{v}</p></div>
         ))}
       </div>
       <ErrorMsg error={move.error} />
-      <div className="flex gap-3 overflow-x-auto pb-4">
+      <div data-tour="pipe-board" className="flex gap-3 overflow-x-auto pb-4">
         {STAGES.map((st) => {
           const items = (opps.data ?? []).filter((o) => o.stage === st.key);
           return (

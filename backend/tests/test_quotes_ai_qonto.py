@@ -109,6 +109,7 @@ class FakeQonto:
         self.quote_status = quote_status
         self.posted: dict[str, list] = {"/v2/clients": [], "/v2/quotes": []}
         self.patched: list[dict] = []
+        self.deleted: list[str] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -118,6 +119,9 @@ class FakeQonto:
             body = json.loads(request.content)
             self.posted[path].append(body)
             return httpx.Response(201, json={"client": {"id": "cl-new", **body}})
+        if request.method == "DELETE" and path.startswith("/v2/quotes/"):
+            self.deleted.append(path.rsplit("/", 1)[1])
+            return httpx.Response(204 if path.endswith("q-42") else 404)
         if request.method == "PATCH" and path == "/v2/quotes/q-42":
             body = json.loads(request.content)
             self.patched.append(body)
@@ -224,9 +228,8 @@ def test_push_quote_to_qonto(client, db, monkeypatch):
         d["title"] == "Site vitrine" and d["lines"][0]["description"] == "Développement\nPages et formulaire"
     )
     assert d["total_ht"] == 3000  # recalculé depuis les lignes renvoyées par Qonto
-    # Statut et suppression se gèrent dans Qonto.
+    # Le statut se gère dans Qonto.
     assert client.post(f"/api/billing/{q['id']}/status", json={"status": "accepted"}).status_code == 400
-    assert client.delete(f"/api/billing/{q['id']}").status_code == 400
     # Devis validé dans Qonto : plus modifiable depuis le Hub.
     db.get(BillingDoc, q["id"]).status = "accepted"
     db.commit()
@@ -332,3 +335,37 @@ def test_redirect_uri_uses_real_domain_when_base_url_is_localhost(client, monkey
     monkeypatch.setattr(get_settings(), "base_url", "https://hub.deva2.fr/")
     st = client.get("/api/billing/qonto", headers=headers).json()
     assert st["redirect_uri"] == "https://hub.deva2.fr/api/billing/qonto/oauth/callback"
+
+
+def test_delete_quote_pushed_from_hub_also_in_qonto(client, db, monkeypatch):
+    fake = FakeQonto()
+    monkeypatch.setattr(qonto_oauth, "client", fake.client)
+    q = make_quote(client)
+    pushed = client.post(f"/api/billing/{q['id']}/push-qonto").json()
+    assert pushed["deletable"] is True
+    listed = {d["id"]: d for d in client.get("/api/billing").json()}
+    assert listed[q["id"]]["deletable"] is True
+    assert client.delete(f"/api/billing/{q['id']}").status_code == 204
+    assert fake.deleted == ["q-42"] and db.get(BillingDoc, q["id"]) is None
+
+    # Déjà supprimé dans Qonto (404) : supprimé quand même dans le Hub.
+    q2 = make_quote(client, "Autre client")
+    doc = db.get(BillingDoc, q2["id"])
+    doc.provider, doc.external_id, doc.status = "qonto", "quote:q-gone", "sent"
+    db.commit()
+    assert client.delete(f"/api/billing/{q2['id']}").status_code == 204
+
+    # Devis importé de Qonto (créé dans Qonto) ou validé : non supprimable depuis le Hub.
+    imported = BillingDoc(
+        kind="quote",
+        provider="qonto",
+        external_id="quote:q-1",
+        status="sent",
+        created_by="Qonto",
+        issue_date=doc.issue_date,
+    )
+    db.add(imported)
+    db.commit()
+    r = client.delete(f"/api/billing/{imported.id}")
+    assert r.status_code == 400 and "Qonto" in r.json()["detail"]
+    assert "q-1" not in fake.deleted
