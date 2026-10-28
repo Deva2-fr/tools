@@ -33,7 +33,7 @@ export default function Billing() {
   const sum = useQuery({ queryKey: ["billing-sum"], queryFn: () => api<Sum>("/billing/summary") });
   const qc = useQueryClient();
   const qonto = useQuery({ queryKey: ["billing-qonto"], queryFn: () => api<{ configured: boolean; last_synced_at: string | null }>("/billing/qonto") });
-  const sync = useMutation({ mutationFn: () => api<{ invoices: number; quotes: number; created: number }>("/billing/qonto/sync", "POST"), onSuccess: () => qc.invalidateQueries() });
+  const sync = useMutation({ mutationFn: () => api<{ invoices: number; quotes: number; created: number; warnings: string[] }>("/billing/qonto/sync", "POST"), onSuccess: () => qc.invalidateQueries() });
   const viaQonto = !!qonto.data?.configured;
   const s = sum.data;
   return (
@@ -41,15 +41,16 @@ export default function Billing() {
       <PageHeader title="Devis & factures" subtitle={viaQonto ? "Vos devis et factures Qonto, importés automatiquement : CA, encaissements, retards et relances." : "Créez, émettez et suivez vos devis et factures. Numérotation continue automatique, PDF prêt à envoyer."}
         action={<div className="flex gap-2">
           <Button variant="ghost" onClick={() => downloadFile("/billing/export/csv", "devis-factures.csv")}>Export comptable (CSV)</Button>
-          {viaQonto ? <Button busy={sync.isPending} onClick={() => sync.mutate()}>Synchroniser Qonto</Button> : <>
           <Button variant="soft" onClick={() => nav("/facturation/nouveau?kind=quote")}>+ Devis</Button>
-          <Button onClick={() => nav("/facturation/nouveau?kind=invoice")}>+ Facture</Button></>}</div>} />
+          {viaQonto ? <Button busy={sync.isPending} onClick={() => sync.mutate()}>Synchroniser Qonto</Button>
+            : <Button onClick={() => nav("/facturation/nouveau?kind=invoice")}>+ Facture</Button>}</div>} />
       {qonto.data && (
         <p className="mb-4 text-sm text-slate-500">
           {viaQonto
-            ? <>Qonto connecté{qonto.data.last_synced_at ? <> · dernière synchronisation {fmtDateTime(qonto.data.last_synced_at)}</> : " · pas encore synchronisé"} · les devis et factures se créent dans Qonto et arrivent ici toutes les heures.</>
+            ? <>Qonto connecté{qonto.data.last_synced_at ? <> · dernière synchronisation {fmtDateTime(qonto.data.last_synced_at)}</> : " · pas encore synchronisé"} · factures et devis Qonto importés toutes les heures. Les devis peuvent aussi être préparés ici (avec l'IA) puis envoyés vers Qonto.</>
             : <>Vos devis et factures sont dans Qonto ? Renseignez la clé API dans <b>Paramètres → Intégrations → Banque Qonto</b> pour les importer automatiquement.</>}
           {sync.data && <span className="text-emerald-800"> · {sync.data.invoices} facture(s) et {sync.data.quotes} devis à jour.</span>}
+          {sync.data?.warnings?.map((w) => <span key={w} className="block text-amber-700">{w}</span>)}
         </p>
       )}
       <div className="mb-4"><ErrorMsg error={sync.error} /></div>

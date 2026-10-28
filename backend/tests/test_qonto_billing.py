@@ -81,7 +81,7 @@ def fake(invoices=INVOICES, quotes=QUOTES, status=200):
 
 def test_import_invoices_and_quotes(db):
     res = qonto_billing.sync(db, client=fake())
-    assert res == {"invoices": 2, "quotes": 1, "created": 3}
+    assert res == {"invoices": 2, "quotes": 1, "created": 3, "warnings": []}
 
     paid = db.scalar(select(BillingDoc).where(BillingDoc.number == "F-2026-001"))
     assert paid.provider == "qonto" and paid.status == "paid" and paid.kind == "invoice"

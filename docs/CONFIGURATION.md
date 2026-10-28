@@ -154,6 +154,15 @@ Le PDF contient déjà les mentions obligatoires usuelles (pénalités de retard
 
 **Devis et factures faits dans Qonto ?** Si la clé API Qonto est renseignée (section 12), le Hub **importe vos devis et factures Qonto** toutes les heures (ou via **Devis & factures → Synchroniser Qonto**) : client (créé dans le CRM s'il n'existe pas), lignes, montants, statut, paiement et lien **Ouvrir dans Qonto**. Ces documents sont en lecture seule dans le Hub : on les crée et les modifie dans Qonto. Ils alimentent le CA, le reste à encaisser, les relances d'impayés et la prévision de trésorerie. Les boutons « + Devis / + Facture » du Hub disparaissent alors pour garder une seule numérotation.
 
+**Préparer un devis dans le Hub, l'améliorer avec l'IA, puis l'envoyer vers Qonto** :
+1. *Devis & factures → + Devis* : client, objet, lignes, conditions ; enregistrez le brouillon.
+2. **✨ Améliorer avec l'IA** (facultatif) : donnez une consigne ou laissez vide pour une relecture. L'IA (Claude) propose un objet, des intitulés plus clairs, un découpage des lignes et des conditions ; elle ne change ni prix, ni quantités, ni TVA sauf si vous le demandez, et affiche l'ancien et le nouveau total. **Appliquer au devis**, relisez, enregistrez.
+3. **Envoyer vers Qonto** : le client est retrouvé (ou créé) dans Qonto et le devis y est créé **« en attente de validation »** : c'est l'équivalent d'un brouillon chez Qonto (il n'existe pas d'autre statut à la création) : modifiable, supprimable, **pas envoyé au client**. Il prend le numéro Qonto et se gère ensuite dans Qonto (envoi, acceptation) ; le Hub le suit en lecture seule.
+
+Réglages nécessaires (**Paramètres → Intégrations**) :
+- **Assistant IA** : une clé API Anthropic (<https://console.anthropic.com> → API Keys), facturée à l'usage par Anthropic. **Tester la connexion** pour vérifier.
+- **Banque Qonto → Connexion Qonto pour les devis** : voir section 12 (connexion OAuth).
+
 **Abonnements** : chaque abonnement peut avoir un **responsable** (utilisateur du Hub : licence nominative, carte utilisée…). **Abonnements ↔ dépenses** : dans **Abonnements**, le bouton **Dépenses liées** rattache à un abonnement (hébergement, nom de domaine…) tout ce qui a été payé pour lui : **mouvements bancaires** (ex. prélèvement OVH importé de Qonto ; la liste est pré-filtrée sur le fournisseur), **notes de frais** et **factures**. La colonne **Payé (12 mois)** additionne ces dépenses et signale quand elles dépassent nettement le coût prévu.
 
 **Comment marche la facturation sans Qonto ?**
@@ -195,6 +204,12 @@ Le Hub importe tout seul, **toutes les heures**, vos comptes Qonto, leurs soldes
 - Vos comptes saisis à la main (ou importés en CSV) restent utilisables à côté.
 - Si vous régénérez la clé chez Qonto, remettez-la dans le Hub.
 - « La clé API Qonto n'a pas accès aux devis/factures » : la clé doit appartenir à un propriétaire ou administrateur de l'organisation.
+
+**Connexion OAuth (devis)** : Qonto réserve les **devis** (import et création) aux applications connectées en OAuth ; la clé API ci-dessus suffit pour le reste. Sans cette connexion, les factures sont importées normalement et un message signale que les devis ne le sont pas.
+1. Sur le portail développeur Qonto (<https://developers.qonto.com>), créez une application et déclarez l'**adresse de redirection** affichée dans le Hub (*Paramètres → Intégrations → Banque Qonto*), de la forme `https://<votre-domaine>/api/billing/qonto/oauth/callback`.
+2. Autorisez les droits : `offline_access`, `organization.read`, `client.read`, `client.write`, `client_invoices.read`, `client_invoice.write`.
+3. Copiez l'**ID** et le **secret** de l'application dans les champs « Qonto – ID / Secret de l'application ».
+4. Cliquez **Se connecter avec Qonto** (compte administrateur Qonto) et acceptez.
 
 ## Dépannage rapide
 

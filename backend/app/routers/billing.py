@@ -1,17 +1,21 @@
 from datetime import date
+from urllib.parse import quote
 
+import jwt
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import RedirectResponse, Response
+from pydantic import BaseModel, Field
 from sqlalchemy import extract, select
 from sqlalchemy.orm import Session
 
-from app.core.db import get_db
-from app.core.security import manager_user
+from app.core.config import get_settings
+from app.core.db import get_db, utcnow
+from app.core.security import admin_user, manager_user
 from app.models import BillingDoc, Company, Payment, User
 from app.routers._common import csv_response
 from app.routers.auth import audit
-from app.schemas_billing import DocIn, DocOut, PaymentIn, StatusIn
-from app.services import billing, billing_pdf, integrations, qonto, qonto_billing
+from app.schemas_billing import DocIn, DocOut, LineIn, PaymentIn, StatusIn
+from app.services import billing, billing_pdf, integrations, qonto, qonto_billing, qonto_oauth, quote_ai
 
 router = APIRouter(prefix="/billing", tags=["devis & factures"], dependencies=[Depends(manager_user)])
 
@@ -104,7 +108,87 @@ def qonto_status(db: Session = Depends(get_db)):
     return {
         "configured": qonto.is_configured(db),
         "last_synced_at": integrations.get(db, "qonto_billing_synced_at") or None,
+        # Connexion OAuth (devis) et assistant IA
+        "oauth_configured": qonto_oauth.is_configured(db),
+        "oauth_connected": qonto_oauth.is_connected(db),
+        "redirect_uri": qonto_oauth.redirect_uri(),
+        "ai_configured": quote_ai.is_configured(db),
     }
+
+
+@router.get("/qonto/connect")
+def qonto_connect(admin: User = Depends(admin_user), db: Session = Depends(get_db)):
+    state = jwt.encode(
+        {"uid": admin.id, "exp": utcnow().timestamp() + 600}, get_settings().secret_key, algorithm="HS256"
+    )
+    try:
+        return {"url": qonto_oauth.authorize_url(db, state)}
+    except qonto_oauth.QontoOAuthError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/qonto/oauth/callback")
+def qonto_callback(
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    db: Session = Depends(get_db),
+    user: User = Depends(admin_user),
+):
+    base = get_settings().base_url.rstrip("/")
+    try:
+        data = jwt.decode(state, get_settings().secret_key, algorithms=["HS256"])
+        if data["uid"] != user.id:
+            raise ValueError("utilisateur différent")
+        if error or not code:
+            raise ValueError(error or "code manquant")
+        qonto_oauth.exchange_code(db, code)
+    except Exception as exc:
+        return RedirectResponse(f"{base}/parametres?qonto_error={quote(str(exc)[:150])}")
+    audit(db, user.email, "qonto_oauth_connected", "")
+    return RedirectResponse(f"{base}/parametres?qonto=connected")
+
+
+@router.post("/qonto/disconnect")
+def qonto_disconnect(admin: User = Depends(admin_user), db: Session = Depends(get_db)):
+    qonto_oauth.disconnect(db)
+    audit(db, admin.email, "qonto_oauth_disconnected", "")
+    return {"ok": True}
+
+
+class ImproveIn(BaseModel):
+    instructions: str = Field("", max_length=2000)
+    title: str = ""
+    notes: str = ""
+    lines: list[LineIn] = Field(default_factory=list, max_length=200)
+
+
+@router.post("/{doc_id}/ai-improve")
+def ai_improve(
+    doc_id: int, body: ImproveIn, db: Session = Depends(get_db), user: User = Depends(manager_user)
+):
+    """Proposition de l'IA à partir du devis en cours d'édition (rien n'est enregistré)."""
+    d = _editable(_get(db, doc_id))
+    try:
+        proposal = quote_ai.improve(
+            db, d, [ln.model_dump() for ln in body.lines], body.title, body.notes, body.instructions
+        )
+    except quote_ai.AIError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    audit(db, user.email, "quote_ai_improved", str(doc_id))
+    return proposal
+
+
+@router.post("/{doc_id}/push-qonto", response_model=DocOut)
+def push_qonto(doc_id: int, db: Session = Depends(get_db), user: User = Depends(manager_user)):
+    """Crée le devis dans Qonto (en attente de validation, non envoyé au client)."""
+    d = _get(db, doc_id)
+    try:
+        qonto_billing.push_quote(db, d)
+    except qonto.QontoError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    audit(db, user.email, "quote_pushed_to_qonto", d.number or str(doc_id))
+    return _out(db, d)
 
 
 @router.post("/qonto/sync")
