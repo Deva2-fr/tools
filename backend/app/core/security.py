@@ -77,6 +77,10 @@ def admin_user(user: User = Depends(current_user)) -> User:
 manager_user = require_role("manager")
 
 
+def is_manager(user: User) -> bool:
+    return ROLE_RANK.get(user.role, -1) >= ROLE_RANK["manager"]
+
+
 def safe_equal(a: str, b: str) -> bool:
     return bool(a) and bool(b) and hmac.compare_digest(a.encode(), b.encode())
 

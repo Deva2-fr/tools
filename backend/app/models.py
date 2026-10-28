@@ -193,10 +193,25 @@ class MailMessage(Base):
     manual_tag: Mapped[str | None] = mapped_column(String(20), nullable=True)  # a_repondre|urgent|fait|ignore
 
 
+class Signature(Base):
+    """Signature manuscrite (image PNG) réutilisable sur les notes de frais."""
+
+    __tablename__ = "signatures"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)  # signataire
+    name: Mapped[str] = mapped_column(String(120))
+    image_path: Mapped[str] = mapped_column(String(300))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 class Expense(Base):
     __tablename__ = "expenses"
     id: Mapped[int] = mapped_column(primary_key=True)
     expense_date: Mapped[date] = mapped_column(Date)
+    # Utilisateur du Hub concerné ; `employee` garde son nom tel qu'imprimé sur le PDF.
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     employee: Mapped[str] = mapped_column(String(120), default="")
     reason: Mapped[str] = mapped_column(String(300))
     category: Mapped[str] = mapped_column(String(60), default="")
@@ -208,6 +223,12 @@ class Expense(Base):
     amount_vat: Mapped[float] = mapped_column(Numeric(12, 2, asdecimal=False))
     notes: Mapped[str] = mapped_column(Text, default="")
     pdf_path: Mapped[str] = mapped_column(String(300), default="")
+    signature_id: Mapped[int | None] = mapped_column(
+        ForeignKey("signatures.id", ondelete="SET NULL"), nullable=True
+    )
+    # Justificatif (ticket, facture…) : fichier stocké sous un nom aléatoire, ajouté à la fin du PDF.
+    receipt_path: Mapped[str] = mapped_column(String(300), default="", server_default="")
+    receipt_name: Mapped[str] = mapped_column(String(300), default="", server_default="")
     # PDF déposé dans Google Drive (Administration > Comptabilité > Note de frais)
     drive_file_id: Mapped[str] = mapped_column(String(100), default="", server_default="")
     drive_link: Mapped[str] = mapped_column(String(500), default="", server_default="")
@@ -417,6 +438,9 @@ class Subscription(Base):
     kind: Mapped[str] = mapped_column(
         String(20), default="saas"
     )  # domain|hosting|saas|insurance|contract|other
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )  # responsable / utilisateur de l'abonnement
     vendor: Mapped[str] = mapped_column(String(200), default="")
     cost: Mapped[float] = mapped_column(Numeric(12, 2, asdecimal=False), default=0)  # HT par période
     period: Mapped[str] = mapped_column(String(10), default="yearly")  # monthly|quarterly|yearly

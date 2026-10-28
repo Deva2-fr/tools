@@ -3,11 +3,14 @@
 import io
 from datetime import date
 
+from pypdf import PdfReader, PdfWriter
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfgen import canvas as pdfcanvas
+from reportlab.platypus import Image, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app.models import Expense
 from app.services.billing_pdf import BRAND, MUTED, _p, money, num
@@ -21,7 +24,18 @@ def filename(e: Expense) -> str:
     return f"{number(e)}.pdf"
 
 
-def render_pdf(e: Expense, company: dict[str, str]) -> bytes:
+class ReceiptError(ValueError):
+    """Justificatif illisible (message affichable)."""
+
+
+def _signature_flowable(png: bytes) -> Image:
+    """Image de signature réduite pour tenir dans le cadre (70 × 20 mm max), proportions conservées."""
+    w, h = ImageReader(io.BytesIO(png)).getSize()
+    scale = min(70 * mm / w, 20 * mm / h)
+    return Image(io.BytesIO(png), width=w * scale, height=h * scale)
+
+
+def render_pdf(e: Expense, company: dict[str, str], signature: bytes | None = None) -> bytes:
     ss = getSampleStyleSheet()
     base = ParagraphStyle("base", parent=ss["Normal"], fontName="Helvetica", fontSize=9.5, leading=13)
     small = ParagraphStyle("small", parent=base, fontSize=8, textColor=MUTED, leading=10)
@@ -116,13 +130,58 @@ def render_pdf(e: Expense, company: dict[str, str]) -> bytes:
         Table(
             [
                 [_p("Signature du collaborateur", small), _p("Visa de la direction", small)],
-                ["", ""],
+                [_signature_flowable(signature) if signature else "", ""],
             ],
             colWidths=[87 * mm, 87 * mm],
             rowHeights=[None, 22 * mm],
-            style=[("BOX", (0, 1), (0, 1), 0.4, MUTED), ("BOX", (1, 1), (1, 1), 0.4, MUTED)],
+            style=[
+                ("BOX", (0, 1), (0, 1), 0.4, MUTED),
+                ("BOX", (1, 1), (1, 1), 0.4, MUTED),
+                ("VALIGN", (0, 1), (-1, 1), "MIDDLE"),
+                ("ALIGN", (0, 1), (0, 1), "CENTER"),
+            ],
         )
     )
-    story += [Spacer(1, 4 * mm), _p("Justificatifs à joindre à la présente note.", small)]
+    story += [
+        Spacer(1, 4 * mm),
+        _p(
+            f"Justificatif joint en annexe : {e.receipt_name}."
+            if e.receipt_name
+            else "Justificatifs à joindre à la présente note.",
+            small,
+        ),
+    ]
     pdf.build(story)
     return buf.getvalue()
+
+
+def _image_page(data: bytes) -> bytes:
+    """Une page A4 contenant la photo / le scan du justificatif, agrandie au mieux."""
+    img = ImageReader(io.BytesIO(data))
+    w, h = img.getSize()
+    page_w, page_h = A4
+    margin = 12 * mm
+    scale = min((page_w - 2 * margin) / w, (page_h - 2 * margin) / h)
+    buf = io.BytesIO()
+    c = pdfcanvas.Canvas(buf, pagesize=A4)
+    c.drawImage(img, (page_w - w * scale) / 2, (page_h - h * scale) / 2, w * scale, h * scale)
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def with_receipt(note: bytes, receipt: bytes | None, ext: str) -> bytes:
+    """Ajoute le justificatif (PDF, JPG, PNG) à la fin de la note de frais : un seul fichier à archiver."""
+    if not receipt:
+        return note
+    try:
+        annex = receipt if ext == ".pdf" else _image_page(receipt)
+        writer = PdfWriter()
+        for part in (note, annex):
+            for page in PdfReader(io.BytesIO(part)).pages:
+                writer.add_page(page)
+    except Exception as exc:  # noqa: BLE001 - fichier fourni par l'utilisateur : toute erreur = illisible
+        raise ReceiptError("Le justificatif est illisible : envoyez un PDF, une photo JPG ou PNG.") from exc
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()

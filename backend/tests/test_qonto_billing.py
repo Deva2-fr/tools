@@ -173,13 +173,13 @@ def test_expense_pdf_uploaded_to_drive(client, db, monkeypatch):
         google_drive.httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(handler), **kw)
     )
     body = {"expense_date": "2026-10-01", "reason": "Train", "amount_ttc": 60, "vat_rate": 10}
-    r = client.post("/api/expenses/save", json=body)
+    r = client.post("/api/expenses/save", data={"data": json.dumps(body)})
     assert r.status_code == 200 and r.headers["x-drive-status"] == "ok"
     assert seen[0][0] == "POST" and b'"parents": ["FOLDER123"]' in seen[0][2] and b"%PDF" in seen[0][2]
     e = next(x for x in client.get("/api/expenses").json() if x["id"] == int(r.headers["x-expense-id"]))
     assert e["drive_link"].endswith("file-1")
     # Réenregistrer la note remplace le même fichier Drive (pas de doublon).
-    r = client.post(f"/api/expenses/save?expense_id={e['id']}", json=body)
+    r = client.post(f"/api/expenses/save?expense_id={e['id']}", data={"data": json.dumps(body)})
     assert r.headers["x-drive-status"] == "ok" and seen[1][0] == "PATCH" and "file-1" in seen[1][1]
 
     def denied(request):
@@ -188,7 +188,7 @@ def test_expense_pdf_uploaded_to_drive(client, db, monkeypatch):
     monkeypatch.setattr(
         google_drive.httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(denied), **kw)
     )
-    r = client.post("/api/expenses/save", json=body)
+    r = client.post("/api/expenses/save", data={"data": json.dumps(body)})
     assert r.status_code == 200 and r.content.startswith(b"%PDF")
     from urllib.parse import unquote
 

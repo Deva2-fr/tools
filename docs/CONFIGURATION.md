@@ -80,7 +80,7 @@ Uniquement si votre messagerie est un vrai Microsoft 365 (Exchange Online), qui 
 
 ## 4. Google Drive (notes de frais en PDF)
 
-Le Hub génère lui-même le PDF de la note de frais (aucun modèle à créer). À chaque **Enregistrer**, le PDF est téléchargé sur votre poste **et** déposé dans Google Drive, dans **Deva2 › Administration › Comptabilité › Note de frais**. Si vous modifiez une note, le même fichier Drive est remplacé (pas de doublon).
+Le Hub génère lui-même le PDF de la note de frais (aucun modèle à créer). Chaque note est rattachée à un **utilisateur du Hub** (un membre ne saisit et ne voit que les siennes ; un manager peut saisir pour n'importe qui). On peut y choisir une **signature**, dessinée à la souris ou au doigt (bouton **+ Nouvelle**) ou importée en image : chaque utilisateur a ses propres signatures, réutilisables. Le **justificatif** (ticket, facture : PDF, JPG ou PNG, 10 Mo max.) est ajouté à la fin du PDF : un seul fichier contient la note signée et sa preuve. À chaque **Enregistrer**, le PDF est téléchargé sur votre poste **et** déposé dans Google Drive, dans **Deva2 › Administration › Comptabilité › Note de frais**. Si vous modifiez une note, le même fichier Drive est remplacé (pas de doublon).
 
 ### a) Créer le « robot » Google (une seule fois)
 1. <https://console.cloud.google.com> → créez un projet `deva2-hub`.
@@ -147,7 +147,7 @@ Le PDF contient déjà les mentions obligatoires usuelles (pénalités de retard
 
 **Devis et factures faits dans Qonto ?** Si la clé API Qonto est renseignée (section 12), le Hub **importe vos devis et factures Qonto** toutes les heures (ou via **Devis & factures → Synchroniser Qonto**) : client (créé dans le CRM s'il n'existe pas), lignes, montants, statut, paiement et lien **Ouvrir dans Qonto**. Ces documents sont en lecture seule dans le Hub : on les crée et les modifie dans Qonto. Ils alimentent le CA, le reste à encaisser, les relances d'impayés et la prévision de trésorerie. Les boutons « + Devis / + Facture » du Hub disparaissent alors pour garder une seule numérotation.
 
-**Abonnements ↔ dépenses** : dans **Abonnements**, le bouton **Dépenses liées** rattache à un abonnement (hébergement, nom de domaine…) tout ce qui a été payé pour lui : **mouvements bancaires** (ex. prélèvement OVH importé de Qonto ; la liste est pré-filtrée sur le fournisseur), **notes de frais** et **factures**. La colonne **Payé (12 mois)** additionne ces dépenses et signale quand elles dépassent nettement le coût prévu.
+**Abonnements** : chaque abonnement peut avoir un **responsable** (utilisateur du Hub : licence nominative, carte utilisée…). **Abonnements ↔ dépenses** : dans **Abonnements**, le bouton **Dépenses liées** rattache à un abonnement (hébergement, nom de domaine…) tout ce qui a été payé pour lui : **mouvements bancaires** (ex. prélèvement OVH importé de Qonto ; la liste est pré-filtrée sur le fournisseur), **notes de frais** et **factures**. La colonne **Payé (12 mois)** additionne ces dépenses et signale quand elles dépassent nettement le coût prévu.
 
 **Comment marche la facturation sans Qonto ?**
 1. *Devis & factures → + Devis* : choisissez le client, ajoutez des lignes (le total se calcule seul, TVA par taux). Enregistrez : c'est un **brouillon** modifiable, sans numéro.
