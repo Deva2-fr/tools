@@ -8,7 +8,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import public_base_url
 from app.core.db import utcnow
 from app.models import MailMessage
 from app.services import integrations
@@ -26,17 +26,17 @@ ASK_WORDS = re.compile(
 URGENT_WORDS = re.compile(r"(urgent|urgence|asap|dernier rappel|mise en demeure|impay)", re.I)
 
 
-def redirect_uri() -> str:
-    return get_settings().base_url.rstrip("/") + "/api/mail/callback"
+def redirect_uri(request=None) -> str:
+    return public_base_url(request) + "/api/mail/callback"
 
 
-def authorize_url(db: Session, state: str) -> str:
+def authorize_url(db: Session, state: str, request=None) -> str:
     tenant = integrations.get(db, "microsoft_tenant_id", "common")
     q = urlencode(
         {
             "client_id": integrations.get(db, "microsoft_client_id"),
             "response_type": "code",
-            "redirect_uri": redirect_uri(),
+            "redirect_uri": redirect_uri(request),
             "response_mode": "query",
             "scope": SCOPES,
             "state": state,
@@ -62,9 +62,9 @@ def _token_request(db: Session, data: dict) -> dict:
     return r.json()
 
 
-def exchange_code(db: Session, code: str) -> str:
+def exchange_code(db: Session, code: str, request=None) -> str:
     tok = _token_request(
-        db, {"grant_type": "authorization_code", "code": code, "redirect_uri": redirect_uri()}
+        db, {"grant_type": "authorization_code", "code": code, "redirect_uri": redirect_uri(request)}
     )
     integrations.put(db, "microsoft_refresh_token", tok["refresh_token"])
     me = httpx.get(

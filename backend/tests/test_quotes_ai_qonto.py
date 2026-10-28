@@ -262,3 +262,17 @@ def test_qonto_oauth_flow(client, db, monkeypatch):
 
 def body_notes(fake):
     return fake.posted["/v2/quotes"][0]["terms_and_conditions"]
+
+
+def test_redirect_uri_uses_real_domain_when_base_url_is_localhost(client, monkeypatch):
+    """BASE_URL resté sur localhost en production : l'adresse de retour suit le vrai domaine."""
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "base_url", "https://localhost")
+    headers = {"host": "tools.deva2.fr", "x-forwarded-proto": "https"}
+    st = client.get("/api/billing/qonto", headers=headers).json()
+    assert st["redirect_uri"].endswith("://tools.deva2.fr/api/billing/qonto/oauth/callback")
+    # Un BASE_URL réel reste prioritaire.
+    monkeypatch.setattr(get_settings(), "base_url", "https://hub.deva2.fr/")
+    st = client.get("/api/billing/qonto", headers=headers).json()
+    assert st["redirect_uri"] == "https://hub.deva2.fr/api/billing/qonto/oauth/callback"

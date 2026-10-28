@@ -194,7 +194,7 @@ def test_login_error_is_readable(imap_db, monkeypatch):
 def test_legacy_single_mailbox_is_migrated(db):
     integrations.put(db, "imap_host", "mail.deva2.fr")
     integrations.put(db, "imap_user", "contact@deva2.fr")
-    integrations.put(db, "imap_password", "pw")
+    integrations.put(db, "imap_password", "mot-de-passe-imap")
     integrations.put(db, "imap_webmail_url", "https://webmail.deva2.fr")
     db.add(MailMessage(graph_id="imap:<old@x>", subject="Ancien", received_at=mail_imap.utcnow()))
     db.commit()
@@ -203,7 +203,7 @@ def test_legacy_single_mailbox_is_migrated(db):
     assert (
         box.name == "Contact" and box.username == "contact@deva2.fr" and box.webmail_url.endswith("deva2.fr")
     )
-    assert box.password_enc and "pw" not in box.password_enc  # chiffré
+    assert box.password_enc and "mot-de-passe-imap" not in box.password_enc  # chiffré
     old = db.scalar(select(MailMessage).where(MailMessage.subject == "Ancien"))
     assert old.mailbox_id == box.id and old.graph_id == f"imap:{box.id}:<old@x>"
     assert integrations.get(db, "imap_host") == ""  # anciens réglages vidés

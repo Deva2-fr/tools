@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 import httpx
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import public_base_url
 from app.services import integrations
 
 AUTH_URL = "https://oauth.qonto.com/oauth2/auth"
@@ -20,8 +20,8 @@ class QontoOAuthError(RuntimeError):
     """Erreur affichable telle quelle."""
 
 
-def redirect_uri() -> str:
-    return get_settings().base_url.rstrip("/") + "/api/billing/qonto/oauth/callback"
+def redirect_uri(request=None) -> str:
+    return public_base_url(request) + "/api/billing/qonto/oauth/callback"
 
 
 def is_configured(db: Session) -> bool:
@@ -34,7 +34,7 @@ def is_connected(db: Session) -> bool:
     return bool(integrations.get(db, "qonto_oauth_refresh_token"))
 
 
-def authorize_url(db: Session, state: str) -> str:
+def authorize_url(db: Session, state: str, request=None) -> str:
     if not is_configured(db):
         raise QontoOAuthError(
             "Renseignez d'abord l'application Qonto (Paramètres > Intégrations > Banque Qonto)."
@@ -43,7 +43,7 @@ def authorize_url(db: Session, state: str) -> str:
         {
             "client_id": integrations.get(db, "qonto_oauth_client_id"),
             "response_type": "code",
-            "redirect_uri": redirect_uri(),
+            "redirect_uri": redirect_uri(request),
             "scope": SCOPES,
             "state": state,
         }
@@ -74,8 +74,8 @@ def _token(db: Session, data: dict) -> dict:
     return tok
 
 
-def exchange_code(db: Session, code: str) -> None:
-    _token(db, {"grant_type": "authorization_code", "code": code, "redirect_uri": redirect_uri()})
+def exchange_code(db: Session, code: str, request=None) -> None:
+    _token(db, {"grant_type": "authorization_code", "code": code, "redirect_uri": redirect_uri(request)})
 
 
 def access_token(db: Session) -> str:

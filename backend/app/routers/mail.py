@@ -1,12 +1,12 @@
 from urllib.parse import quote
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import get_settings, public_base_url
 from app.core.crypto import encrypt
 from app.core.db import get_db, utcnow
 from app.core.security import admin_user, current_user
@@ -55,7 +55,7 @@ def _box_out(b: Mailbox, todo: int = 0) -> dict:
 
 
 @router.get("/status", dependencies=[Depends(current_user)])
-def status(db: Session = Depends(get_db)):
+def status(request: Request, db: Session = Depends(get_db)):
     mailbox.migrate_legacy(db)
     todo: dict[int | None, int] = {}
     for m in db.scalars(select(MailMessage)):
@@ -74,7 +74,7 @@ def status(db: Session = Depends(get_db)):
                 integrations.get(db, "microsoft_client_id")
                 and integrations.get(db, "microsoft_client_secret")
             ),
-            "redirect_uri": outlook.redirect_uri(),
+            "redirect_uri": outlook.redirect_uri(request),
         },
     }
 
@@ -141,31 +141,32 @@ def test_mailbox(box_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/connect")
-def connect(admin: User = Depends(admin_user), db: Session = Depends(get_db)):
+def connect(request: Request, admin: User = Depends(admin_user), db: Session = Depends(get_db)):
     if not integrations.get(db, "microsoft_client_id"):
         raise HTTPException(400, "Renseignez d'abord l'application Microsoft (Paramètres > Intégrations)")
     state = jwt.encode(
         {"uid": admin.id, "exp": utcnow().timestamp() + 600}, get_settings().secret_key, algorithm="HS256"
     )
-    return {"url": outlook.authorize_url(db, state)}
+    return {"url": outlook.authorize_url(db, state, request)}
 
 
 @router.get("/callback")
 def callback(
+    request: Request,
     code: str = "",
     state: str = "",
     error: str = "",
     db: Session = Depends(get_db),
     user: User = Depends(admin_user),
 ):
-    base = get_settings().base_url.rstrip("/")
+    base = public_base_url(request)
     try:
         data = jwt.decode(state, get_settings().secret_key, algorithms=["HS256"])
         if data["uid"] != user.id:
             raise ValueError("utilisateur différent")
         if error or not code:
             raise ValueError(error or "code manquant")
-        outlook.exchange_code(db, code)
+        outlook.exchange_code(db, code, request)
         outlook.sync_inbox(db)
     except Exception as exc:
         return RedirectResponse(f"{base}/mail?error={str(exc)[:150]}")
