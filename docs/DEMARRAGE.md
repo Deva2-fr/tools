@@ -150,9 +150,9 @@ Au moins un canal, puis **Envoyer un test** :
 
 Bouton **Tester la connexion** → doit afficher ✅.
 
-### E. Mails (facultatif) — *Intégrations → Boîte mail (IMAP)*
+### E. Mails (facultatif) — *Intégrations → Boîtes mail (IMAP)*
 
-Les mêmes réglages que dans Outlook (*Fichier → Paramètres du compte*) : **serveur IMAP** (ex. `ssl0.ovh.net`), **port 993**, **identifiant** (l'adresse e-mail) et **mot de passe**. *Tester la connexion*, puis **Mails → Actualiser**. Détails et hébergeurs courants : [CONFIGURATION.md, section 3](CONFIGURATION.md#3-boîte-mail-lire-vos-mails-et-repérer-ceux--à-répondre-). Microsoft 365 reste possible (annexe de la même section).
+Les mêmes réglages que dans Outlook (*Fichier → Paramètres du compte*) : **serveur IMAP** (ex. `ssl0.ovh.net`), **port 993**, **identifiant** (l'adresse e-mail) et **mot de passe**. Une boîte par adresse (**+ Boîte mail**), puis *Tester la connexion* et **Mails → Actualiser** : chaque boîte a son bouton dans la page Mails. Détails et hébergeurs courants : [CONFIGURATION.md, section 3](CONFIGURATION.md#3-boîte-mail-lire-vos-mails-et-repérer-ceux--à-répondre-). Microsoft 365 reste possible (annexe de la même section).
 
 ### F. Notes de frais dans Google Drive (facultatif) — *Intégrations → Google Drive*
 

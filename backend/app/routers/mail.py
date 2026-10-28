@@ -1,14 +1,16 @@
 import jwt
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.crypto import encrypt
 from app.core.db import get_db, utcnow
 from app.core.security import admin_user, current_user
-from app.models import MailMessage, User
-from app.schemas import MailOut, MailTagIn
+from app.models import Mailbox, MailMessage, User
+from app.routers.auth import audit
+from app.schemas import MailboxIn, MailOut, MailTagIn
 from app.services import integrations, mail_imap, mailbox, outlook
 
 router = APIRouter(prefix="/mail", tags=["mails"])
@@ -17,6 +19,7 @@ router = APIRouter(prefix="/mail", tags=["mails"])
 def _out(m: MailMessage) -> MailOut:
     return MailOut(
         id=m.id,
+        mailbox_id=m.mailbox_id,
         subject=m.subject,
         sender_name=m.sender_name,
         sender_email=m.sender_email,
@@ -28,20 +31,111 @@ def _out(m: MailMessage) -> MailOut:
     )
 
 
+TODO_TAGS = ("a_repondre", "urgent")
+
+
+def _box_out(b: Mailbox, todo: int = 0) -> dict:
+    return {
+        "id": b.id,
+        "name": b.name,
+        "host": b.host,
+        "port": b.port,
+        "username": b.username,
+        "has_password": bool(b.password_enc),  # le mot de passe n'est jamais renvoyé
+        "sent_folder": b.sent_folder,
+        "webmail_url": b.webmail_url,
+        "position": b.position,
+        "active": b.active,
+        "last_synced_at": b.last_synced_at,
+        "last_error": b.last_error,
+        "todo": todo,
+    }
+
+
 @router.get("/status", dependencies=[Depends(current_user)])
 def status(db: Session = Depends(get_db)):
-    kind = mailbox.provider(db)
+    mailbox.migrate_legacy(db)
+    todo: dict[int | None, int] = {}
+    for m in db.scalars(select(MailMessage)):
+        if outlook.display_tag(m) in TODO_TAGS:
+            todo[m.mailbox_id] = todo.get(m.mailbox_id, 0) + 1
+    ms = mailbox.microsoft_connected(db)
     return {
-        "provider": kind,
-        "connected": kind is not None,
-        "mailbox": mailbox.mailbox_address(db),
-        "webmail_url": integrations.get(db, "imap_webmail_url") if kind == "imap" else "",
+        "mailboxes": [_box_out(b, todo.get(b.id, 0)) for b in mailbox.boxes(db, active_only=True)],
+        "connected": bool(ms or mailbox.boxes(db, active_only=True)),
         # Microsoft 365 (optionnel)
-        "configured": bool(
-            integrations.get(db, "microsoft_client_id") and integrations.get(db, "microsoft_client_secret")
-        ),
-        "redirect_uri": outlook.redirect_uri(),
+        "microsoft": {
+            "connected": ms,
+            "mailbox": integrations.get(db, "microsoft_mailbox") if ms else "",
+            "todo": todo.get(None, 0) if ms else 0,
+            "configured": bool(
+                integrations.get(db, "microsoft_client_id")
+                and integrations.get(db, "microsoft_client_secret")
+            ),
+            "redirect_uri": outlook.redirect_uri(),
+        },
     }
+
+
+# ---------- Gestion des boîtes (administrateurs) ----------
+def _box(db: Session, box_id: int) -> Mailbox:
+    b = db.get(Mailbox, box_id)
+    if not b:
+        raise HTTPException(404, "Boîte introuvable")
+    return b
+
+
+def _apply(b: Mailbox, body: MailboxIn) -> None:
+    for k in ("name", "host", "port", "username", "sent_folder", "webmail_url", "position", "active"):
+        v = getattr(body, k)
+        setattr(b, k, v.strip() if isinstance(v, str) else v)
+    if body.password:
+        b.password_enc = encrypt(body.password)
+
+
+@router.get("/mailboxes", dependencies=[Depends(admin_user)])
+def list_mailboxes(db: Session = Depends(get_db)):
+    mailbox.migrate_legacy(db)
+    return [_box_out(b) for b in mailbox.boxes(db)]
+
+
+@router.post("/mailboxes", status_code=201)
+def create_mailbox(body: MailboxIn, db: Session = Depends(get_db), admin: User = Depends(admin_user)):
+    if not body.password:
+        raise HTTPException(400, "Le mot de passe de la boîte est requis.")
+    b = Mailbox()
+    _apply(b, body)
+    db.add(b)
+    db.commit()
+    audit(db, admin.email, "mailbox_created", b.name)
+    return _box_out(b)
+
+
+@router.put("/mailboxes/{box_id}")
+def update_mailbox(
+    box_id: int, body: MailboxIn, db: Session = Depends(get_db), admin: User = Depends(admin_user)
+):
+    b = _box(db, box_id)
+    _apply(b, body)
+    db.commit()
+    audit(db, admin.email, "mailbox_updated", b.name)
+    return _box_out(b)
+
+
+@router.delete("/mailboxes/{box_id}", status_code=204)
+def delete_mailbox(box_id: int, db: Session = Depends(get_db), admin: User = Depends(admin_user)):
+    b = _box(db, box_id)
+    name = b.name
+    mailbox.delete_box(db, b)
+    audit(db, admin.email, "mailbox_deleted", name)
+
+
+@router.post("/mailboxes/{box_id}/test", dependencies=[Depends(admin_user)])
+def test_mailbox(box_id: int, db: Session = Depends(get_db)):
+    try:
+        return {"message": mail_imap.test_connection(_box(db, box_id))}
+    except mail_imap.ImapError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.get("/connect")
@@ -84,21 +178,38 @@ def disconnect(db: Session = Depends(get_db)):
 
 
 @router.post("/sync", dependencies=[Depends(current_user)])
-def sync(db: Session = Depends(get_db)):
-    try:
-        return {"new": mailbox.sync(db)}
-    except mail_imap.ImapError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(502, f"Synchronisation impossible : {exc}") from exc
+def sync(mailbox_id: int | None = None, db: Session = Depends(get_db)):
+    """Sans paramètre : toutes les boîtes. Avec ?mailbox_id= : seulement celle-ci."""
+    if mailbox_id is not None:
+        try:
+            return {"new": mailbox.sync_one(db, _box(db, mailbox_id)), "errors": []}
+        except mail_imap.ImapError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(502, f"Synchronisation impossible : {exc}") from exc
+    sources = len(mailbox.boxes(db, active_only=True)) + mailbox.microsoft_connected(db)
+    if not sources:
+        raise HTTPException(400, "Aucune boîte mail n'est configurée (Paramètres > Boîtes mail).")
+    res = mailbox.sync_all(db)
+    if len(res["errors"]) >= sources:  # toutes les boîtes ont échoué
+        raise HTTPException(400, " · ".join(res["errors"]))
+    return res
 
 
 @router.get("/messages", response_model=list[MailOut], dependencies=[Depends(current_user)])
-def messages(tag: str | None = None, limit: int = 200, db: Session = Depends(get_db)):
-    rows = db.scalars(
-        select(MailMessage).order_by(MailMessage.received_at.desc()).limit(min(limit, 500))
-    ).all()
-    out = [_out(m) for m in rows]
+def messages(
+    tag: str | None = None,
+    box: str = Query("", alias="mailbox"),
+    limit: int = 200,
+    db: Session = Depends(get_db),
+):
+    """`mailbox` : id d'une boîte, « microsoft », ou vide pour toutes."""
+    stmt = select(MailMessage).order_by(MailMessage.received_at.desc())
+    if box == "microsoft":
+        stmt = stmt.where(MailMessage.mailbox_id.is_(None))
+    elif box.isdigit():
+        stmt = stmt.where(MailMessage.mailbox_id == int(box))
+    out = [_out(m) for m in db.scalars(stmt.limit(min(limit, 500)))]
     return [m for m in out if m.tag == tag] if tag else out
 
 

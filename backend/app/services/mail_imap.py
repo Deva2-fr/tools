@@ -22,9 +22,10 @@ from html import unescape
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.crypto import decrypt
 from app.core.db import utcnow
-from app.models import MailMessage
-from app.services import integrations, outlook
+from app.models import Mailbox, MailMessage
+from app.services import outlook
 
 DAYS = 30
 MAX_MESSAGES = 300
@@ -47,20 +48,14 @@ class ImapError(RuntimeError):
     """Configuration manquante, identifiants refusés ou serveur injoignable (message affichable)."""
 
 
-def is_configured(db: Session) -> bool:
-    return all(integrations.get(db, k) for k in ("imap_host", "imap_user", "imap_password"))
-
-
-def connect(db: Session) -> imaplib.IMAP4:
-    host = integrations.get(db, "imap_host").strip()
-    user = integrations.get(db, "imap_user").strip()
-    password = integrations.get(db, "imap_password")
+def connect(box: Mailbox) -> imaplib.IMAP4:
+    host, user = box.host.strip(), box.username.strip()
+    password = decrypt(box.password_enc) if box.password_enc else ""
     if not (host and user and password):
-        raise ImapError("Boîte mail non configurée (Paramètres > Intégrations > Boîte mail).")
-    try:
-        port = int(integrations.get(db, "imap_port", "993") or 993)
-    except ValueError:
-        port = 993
+        raise ImapError(
+            f"Boîte « {box.name} » incomplète : serveur, identifiant et mot de passe sont requis."
+        )
+    port = box.port or 993
     ctx = ssl.create_default_context()
     try:
         if port == 993:
@@ -222,13 +217,18 @@ def parse_message(raw: bytes, flags: set[str], uid: str = "?") -> dict:
     }
 
 
-def sync_inbox(db: Session, conn=None) -> int:
+def sync_inbox(db: Session, box: Mailbox, conn=None) -> int:
     """Synchronise les 30 derniers jours de la boîte de réception. Renvoie le nombre de nouveaux mails."""
     own = conn is None
-    conn = conn or connect(db)
     try:
-        mailbox = integrations.get(db, "imap_user").strip().lower()
-        sent = replied_ids(conn, find_sent_folder(conn, integrations.get(db, "imap_sent_folder").strip()))
+        conn = conn or connect(box)
+    except ImapError as exc:
+        box.last_error = str(exc)[:300]
+        db.commit()
+        raise
+    try:
+        address = box.username.strip().lower()
+        sent = replied_ids(conn, find_sent_folder(conn, box.sent_folder.strip()))
         typ, _ = conn.select("INBOX", readonly=True)
         if typ != "OK":
             raise ImapError("Impossible d'ouvrir la boîte de réception (INBOX).")
@@ -239,18 +239,18 @@ def sync_inbox(db: Session, conn=None) -> int:
         items = _fetch(conn, small, "(BODY.PEEK[])")
         items += _fetch(conn, big, f"(BODY.PEEK[HEADER.FIELDS ({HEADER_FIELDS})])")
 
-        webmail = integrations.get(db, "imap_webmail_url").strip()
         created = 0
         for meta, raw in items:
             uid_m = re.search(rb"UID (\d+)", meta)
             uid = uid_m.group(1) if uid_m else b""
             p = parse_message(raw, info.get(uid, (set(), 0))[0], uid.decode() or "?")
             replied = p["answered"] or p["message_id"] in sent
-            tag = outlook.classify(p["sender_email"], p["subject"], p["preview"], mailbox, replied)
-            key = f"imap:{p['message_id']}"[:400]
+            tag = outlook.classify(p["sender_email"], p["subject"], p["preview"], address, replied)
+            # Clé propre à la boîte : un même mail reçu dans deux boîtes apparaît dans chacune.
+            key = f"imap:{box.id}:{p['message_id']}"[:400]
             row = db.scalar(select(MailMessage).where(MailMessage.graph_id == key))
             if not row:
-                row = MailMessage(graph_id=key, received_at=p["received_at"])
+                row = MailMessage(graph_id=key, mailbox_id=box.id, received_at=p["received_at"])
                 db.add(row)
                 created += 1
             row.conversation_id = p["thread"]
@@ -258,26 +258,32 @@ def sync_inbox(db: Session, conn=None) -> int:
             row.sender_name = p["sender_name"]
             row.sender_email = p["sender_email"]
             row.preview = p["preview"]
-            row.web_link = webmail
+            row.web_link = box.webmail_url.strip()
             row.is_read = p["is_read"]
             row.auto_tag = tag
             if replied and row.manual_tag in ("a_repondre", "urgent"):
                 row.manual_tag = "fait"  # la réponse est partie : on referme automatiquement
+        box.last_synced_at, box.last_error = utcnow(), ""
         db.commit()
         return created
+    except ImapError as exc:
+        db.rollback()
+        box.last_error = str(exc)[:300]
+        db.commit()
+        raise
     finally:
         if own:
             _logout(conn)
 
 
-def test_connection(db: Session) -> str:
-    conn = connect(db)
+def test_connection(box: Mailbox) -> str:
+    conn = connect(box)
     try:
         typ, data = conn.select("INBOX", readonly=True)
         if typ != "OK":
             raise ImapError("Connexion OK mais la boîte de réception (INBOX) est introuvable.")
         count = (data[0] or b"0").decode() if data else "0"
-        sent = find_sent_folder(conn, integrations.get(db, "imap_sent_folder").strip())
+        sent = find_sent_folder(conn, box.sent_folder.strip())
         sent_msg = (
             f"dossier des envoyés : « {sent} »"
             if sent

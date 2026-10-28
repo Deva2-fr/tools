@@ -53,8 +53,7 @@ def job_cve(db):
 
 @safe("mails")
 def job_mail(db):
-    if mailbox.provider(db):
-        mailbox.sync(db)
+    mailbox.sync_all(db)
 
 
 @safe("echeances")

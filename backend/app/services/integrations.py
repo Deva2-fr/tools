@@ -28,33 +28,6 @@ FIELDS: list[Field] = [
     ),
     Field("smtp_from", "Adresse d'expédition", "email", "Ex : hub@deva2.fr"),
     Field(
-        "imap_host",
-        "Serveur IMAP",
-        "imap",
-        "Ex : ssl0.ovh.net, imap.ionos.fr, mail.gandi.net (souvent le même que le SMTP)",
-    ),
-    Field("imap_port", "Port IMAP", "imap", "993 (SSL, recommandé) ou 143 (STARTTLS)"),
-    Field("imap_user", "Identifiant", "imap", "En général l'adresse e-mail complète"),
-    Field(
-        "imap_password",
-        "Mot de passe",
-        "imap",
-        "Celui de la boîte mail (lecture seule : le Hub ne modifie rien)",
-        secret=True,
-    ),
-    Field(
-        "imap_sent_folder",
-        "Dossier des envoyés (optionnel)",
-        "imap",
-        "Laissez vide : détecté automatiquement (Sent, Éléments envoyés…)",
-    ),
-    Field(
-        "imap_webmail_url",
-        "Adresse du webmail (optionnel)",
-        "imap",
-        "Pour le bouton « Ouvrir » : ex. https://mail.ovh.net/roundcube/",
-    ),
-    Field(
         "microsoft_tenant_id", "Microsoft – ID de l'annuaire (tenant)", "outlook", "Entra ID > Vue d'ensemble"
     ),
     Field(

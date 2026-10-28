@@ -93,7 +93,7 @@ export interface Check { ts: string; ok: boolean; status_code: number | null; la
 export interface Vuln { id: number; project_id: number; cve_id: string; cvss: number | null; summary: string; exploited: boolean; published_at: string | null; dismissed: boolean; tech_name: string; tech_version: string; project_name: string }
 export interface Alert { id: number; project_id: number | null; kind: string; severity: "info" | "warning" | "critical"; title: string; message: string; acknowledged: boolean; delivery: string; created_at: string }
 export interface Channel { id: number; name: string; type: string; min_severity: string; enabled: boolean; config_keys: string[] }
-export interface Mail { id: number; subject: string; sender_name: string; sender_email: string; preview: string; web_link: string; received_at: string; is_read: boolean; tag: string }
+export interface Mail { id: number; mailbox_id: number | null; subject: string; sender_name: string; sender_email: string; preview: string; web_link: string; received_at: string; is_read: boolean; tag: string }
 export interface Expense { id: number; expense_date: string; employee: string; reason: string; category: string; project: string; payment_method: string; amount_ttc: number; vat_rate: number; amount_ht: number; amount_vat: number; notes: string; has_pdf: boolean; drive_link: string }
 export interface Tax { id: number; title: string; category: string; due_date: string; amount: number | null; recurrence: string; reminder_days: string; notes: string; status: "todo" | "paid"; days_left: number }
 export interface Field { key: string; label: string; group: string; help: string; secret: boolean; multiline: boolean; is_set: boolean; value: string }
