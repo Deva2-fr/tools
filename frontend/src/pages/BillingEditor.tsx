@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Row, api, openPdf } from "../api";
 import { useRefOptions } from "../components";
-import { Badge, Button, Card, ErrorMsg, Field, Loading, PageHeader, fmtDate, fmtMoney } from "../ui";
+import { Badge, Button, Card, ErrorMsg, Field, Loading, Modal, PageHeader, fmtDate, fmtMoney } from "../ui";
 import { STATUS } from "./Billing";
 
 interface Line { description: string; quantity: number; unit_price: number; vat_rate: number }
@@ -18,6 +18,56 @@ export function totals(lines: Line[]) {
   const ht = r2(rows.reduce((a, r) => a + r.base, 0));
   const vat = r2(rows.reduce((a, r) => a + r.vat, 0));
   return { rows, ht, vat, ttc: r2(ht + vat) };
+}
+
+interface Proposal { title: string; lines: Line[]; notes: string; changes: string[] }
+
+/** Amélioration du devis par l'IA : on demande, on compare, on applique (rien n'est enregistré seul). */
+function AiImprove({ docId, current, onApply, onClose }: {
+  docId: number; current: { title: string; notes: string; lines: Line[] }; onApply: (p: Proposal) => void; onClose: () => void;
+}) {
+  const [instructions, setInstructions] = useState("");
+  const ask = useMutation({ mutationFn: () => api<Proposal>(`/billing/${docId}/ai-improve`, "POST", { ...current, instructions }) });
+  const p = ask.data;
+  const before = totals(current.lines);
+  const after = p ? totals(p.lines) : null;
+  return (
+    <Modal title="Améliorer le devis avec l'IA" onClose={onClose} wide>
+      <div className="space-y-4 text-sm">
+        <Field label="Consigne (facultatif)" hint="Ex : détaille le périmètre de chaque prestation, ajoute les conditions de paiement, ton plus commercial…">
+          <textarea rows={2} value={instructions} onChange={(e) => setInstructions(e.target.value)} placeholder="Laissez vide pour une relecture générale : intitulés, clarté, conditions." />
+        </Field>
+        <div className="flex items-center gap-3">
+          <Button busy={ask.isPending} onClick={() => ask.mutate()}>{p ? "Proposer à nouveau" : "Proposer une version améliorée"}</Button>
+          <span className="text-xs text-slate-400">Les prix, quantités et taux de TVA ne changent pas, sauf si vous le demandez.</span>
+        </div>
+        <ErrorMsg error={ask.error} />
+        {p && after && (
+          <div className="space-y-3 rounded border border-brand-600/30 bg-brand-50/40 p-4">
+            {p.changes.length > 0 && <ul className="list-disc pl-5 text-xs text-slate-600">{p.changes.map((c, i) => <li key={i}>{c}</li>)}</ul>}
+            <p><span className="text-slate-400">Objet : </span><b>{p.title}</b></p>
+            <table className="w-full text-sm">
+              <thead><tr className="text-left text-xs uppercase text-slate-400"><th className="py-1">Désignation</th><th className="text-right">Qté</th><th className="text-right">PU HT</th><th className="text-right">TVA</th></tr></thead>
+              <tbody className="divide-y divide-slate-200">
+                {p.lines.map((l, i) => (
+                  <tr key={i}><td className="whitespace-pre-line py-1.5 pr-3">{l.description}</td><td className="text-right">{l.quantity}</td><td className="text-right">{fmtMoney(l.unit_price)}</td><td className="text-right">{l.vat_rate} %</td></tr>
+                ))}
+              </tbody>
+            </table>
+            {p.notes && <p className="whitespace-pre-line text-xs text-slate-600"><span className="text-slate-400">Notes / conditions : </span>{p.notes}</p>}
+            <p className={after.ht !== before.ht ? "font-medium text-amber-700" : "text-xs text-slate-500"}>
+              Total HT : {fmtMoney(before.ht)} → {fmtMoney(after.ht)}{after.ht !== before.ht && " (le total a changé : vérifiez les prix)"}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={onClose}>Garder ma version</Button>
+              <Button onClick={() => { onApply(p); onClose(); }}>Appliquer au devis</Button>
+            </div>
+            <p className="text-right text-xs text-slate-400">Pensez ensuite à enregistrer.</p>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
 }
 
 export default function BillingEditor() {
@@ -63,11 +113,17 @@ export default function BillingEditor() {
   const addPay = useMutation({ mutationFn: () => api(`/billing/${id}/payments`, "POST", { ...pay, amount: Number(pay.amount) }), onSuccess: () => { setPay({ ...pay, amount: "" }); inval(); } });
   const delPay = useMutation({ mutationFn: (pid: number) => api(`/billing/${id}/payments/${pid}`, "DELETE"), onSuccess: inval });
   const pdf = useMutation({ mutationFn: () => openPdf(`/billing/${id}/pdf`) });
+  const [aiOpen, setAiOpen] = useState(false);
+  const qontoSt = useQuery({ queryKey: ["billing-qonto"], queryFn: () => api<{ oauth_connected: boolean; ai_configured: boolean }>("/billing/qonto") });
+  const push = useMutation({
+    mutationFn: async () => { if (editable) await api(`/billing/${id}`, "PUT", body()); return api<Row>(`/billing/${id}/push-qonto`, "POST"); },
+    onSuccess: inval,
+  });
 
   if (!isNew && !d) return doc.error ? <ErrorMsg error={doc.error} /> : <Loading />;
   const label = f.kind === "quote" ? "Devis" : "Facture";
   const setLine = (i: number, k: keyof Line, v: string | number) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
-  const errors = [save.error, issue.error, accept.error, refuse.error, cancel.error, convert.error, del.error, addPay.error, delPay.error, pdf.error].find(Boolean);
+  const errors = [push.error, save.error, issue.error, accept.error, refuse.error, cancel.error, convert.error, del.error, addPay.error, delPay.error, pdf.error].find(Boolean);
 
   return (
     <>
@@ -78,6 +134,11 @@ export default function BillingEditor() {
           <Badge tone={d.is_overdue ? "red" : STATUS[d.status]?.[1]}>{d.is_overdue ? "En retard" : STATUS[d.status]?.[0]}</Badge>
           {fromQonto ? (d.external_url ? <a className="inline-flex items-center rounded px-3 py-2 text-sm font-medium text-brand-600 ring-1 ring-slate-200 hover:bg-slate-50" href={d.external_url} target="_blank" rel="noreferrer noopener">Ouvrir dans Qonto ↗</a> : <Button variant="ghost" busy={pdf.isPending} onClick={() => pdf.mutate()}> Aperçu PDF</Button>)
             : <Button variant="ghost" busy={pdf.isPending} onClick={() => pdf.mutate()}> PDF</Button>}
+          {!fromQonto && d.kind === "quote" && <>
+            <Button variant="soft" onClick={() => setAiOpen(true)} disabled={!qontoSt.data?.ai_configured} title={qontoSt.data?.ai_configured ? undefined : "Renseignez la clé API Anthropic dans Paramètres → Intégrations → Assistant IA"}>✨ Améliorer avec l'IA</Button>
+            <Button busy={push.isPending} disabled={!qontoSt.data?.oauth_connected} title={qontoSt.data?.oauth_connected ? undefined : "Connectez Qonto : Paramètres → Intégrations → Banque Qonto → Se connecter avec Qonto"}
+              onClick={() => confirm("Créer ce devis dans Qonto ? Il y sera « en attente de validation » (modifiable, non envoyé au client) ; ensuite il se gère dans Qonto et se met à jour ici automatiquement.") && push.mutate()}>Envoyer vers Qonto</Button>
+          </>}
           {!fromQonto && <>
           {d.kind === "quote" && ["sent", "accepted"].includes(d.status) && <Button variant="soft" busy={convert.isPending} onClick={() => convert.mutate()}>→ Transformer en facture</Button>}
           {d.kind === "quote" && d.status === "sent" && <><Button variant="soft" onClick={() => accept.mutate()}>✓ Accepté</Button><Button variant="ghost" onClick={() => refuse.mutate()}>Refusé</Button></>}
@@ -85,6 +146,8 @@ export default function BillingEditor() {
           {d.status === "draft" && <Button variant="danger" onClick={() => confirm("Supprimer ce brouillon ?") && del.mutate()}>Supprimer</Button>}
           </>}
         </div>} />
+      {aiOpen && d && <AiImprove docId={d.id} current={{ title: f.title, notes: f.notes, lines }} onClose={() => setAiOpen(false)}
+        onApply={(p) => { setF({ ...f, title: p.title, notes: p.notes }); setLines(p.lines.length ? p.lines : [blankLine()]); }} />}
       {d?.source_quote_id && <p className="mb-3 text-sm text-slate-500">Issue du <Link className="text-brand-600" to={`/facturation/${d.source_quote_id}`}>devis n°{d.source_quote_id}</Link></p>}
       {fromQonto && <p className="mb-4 rounded bg-slate-100 px-3 py-2 text-sm text-slate-600">Document importé de Qonto : il se crée et se modifie dans Qonto (statut, paiement…) et se met à jour ici automatiquement toutes les heures.</p>}
       {!editable && !fromQonto && <p className="mb-4 rounded bg-slate-100 px-3 py-2 text-sm text-slate-600"> Ce document est émis : il n'est plus modifiable (obligation légale). Pour corriger, annulez-le et créez-en un nouveau.</p>}

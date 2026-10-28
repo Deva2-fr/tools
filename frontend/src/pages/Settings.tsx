@@ -10,6 +10,7 @@ const GROUPS: Record<string, { title: string; test?: string; intro: string }> = 
   company: { title: "Ma société (devis & factures)", intro: "Tapez le nom de la société (ou son SIREN) et choisissez-la : raison sociale, forme juridique, SIRET, TVA et adresse se remplissent seuls. Ces informations apparaissent sur les devis, factures et notes de frais. Guide : section 8." },
   google: { title: "Google Drive (notes de frais)", test: "google", intro: "Chaque note de frais enregistrée est déposée en PDF dans Deva2 › Administration › Comptabilité › Note de frais. Guide : section 4." },
   email: { title: "E-mail d'envoi des alertes (SMTP)", test: "smtp", intro: "Pour recevoir les alertes par e-mail. Guide : section 5." },
+  ai: { title: "Assistant IA (devis)", test: "ai", intro: "Clé API Anthropic (Claude) : permet d'améliorer les devis avec l'IA (bouton « Améliorer avec l'IA » dans un devis). Guide : section 8." },
   qonto: { title: "Banque Qonto (trésorerie)", test: "qonto", intro: "Synchronise automatiquement (toutes les heures) vos comptes, transactions, devis et factures Qonto. Lecture seule. Guide : section 12." },
   outlook: { title: "Microsoft 365 (optionnel)", test: "outlook", intro: "Uniquement pour une boîte hébergée chez Microsoft 365 (qui n'accepte pas l'IMAP) : elle apparaît alors comme un bouton de plus dans Mails. Guide : section 3, annexe." },
   security: { title: "Veille de sécurité", test: "nvd", intro: "Optionnel, mais une clé NVD gratuite rend la veille plus rapide. Guide : section 6." },
@@ -157,6 +158,31 @@ function CompanyAutofill({ onDone }: { onDone: () => void }) {
   );
 }
 
+/** Connexion OAuth à Qonto : nécessaire pour les devis (import et envoi depuis le Hub). */
+function QontoOAuth() {
+  const qc = useQueryClient();
+  const st = useQuery({ queryKey: ["billing-qonto"], queryFn: () => api<{ oauth_configured: boolean; oauth_connected: boolean; redirect_uri: string }>("/billing/qonto") });
+  const connect = useMutation({ mutationFn: () => api<{ url: string }>("/billing/qonto/connect"), onSuccess: (r) => { window.location.href = r.url; } });
+  const disconnect = useMutation({ mutationFn: () => api("/billing/qonto/disconnect", "POST"), onSuccess: () => qc.invalidateQueries({ queryKey: ["billing-qonto"] }) });
+  const params = new URLSearchParams(window.location.search);
+  const s = st.data;
+  if (!s) return null;
+  return (
+    <div className="mb-4 rounded border border-slate-200 bg-slate-50 p-3 text-sm">
+      <p className="font-medium text-slate-800">Connexion Qonto pour les devis {s.oauth_connected ? <Badge tone="green">connecté</Badge> : <Badge tone="amber">non connecté</Badge>}</p>
+      <p className="mt-1 text-xs text-slate-500">La clé API suffit pour les comptes, transactions et factures. Les <b>devis</b> (import et envoi depuis le Hub) demandent une connexion OAuth : créez une application sur le portail développeur Qonto avec l'adresse de redirection <code className="rounded bg-white px-1">{s.redirect_uri}</code>, renseignez son ID et son secret ci-dessous, puis connectez-vous.</p>
+      {params.get("qonto") === "connected" && <p className="mt-2 text-xs text-emerald-700">Qonto est connecté.</p>}
+      {params.get("qonto_error") && <p className="mt-2 text-xs text-red-700">Connexion refusée : {params.get("qonto_error")}</p>}
+      <div className="mt-2 flex gap-2">
+        {s.oauth_connected
+          ? <Button variant="ghost" onClick={() => confirm("Déconnecter Qonto pour les devis ?") && disconnect.mutate()}>Déconnecter</Button>
+          : <Button variant="soft" disabled={!s.oauth_configured} busy={connect.isPending} onClick={() => connect.mutate()}>Se connecter avec Qonto</Button>}
+      </div>
+      <ErrorMsg error={connect.error} />
+    </div>
+  );
+}
+
 function Integrations() {
   const qc = useQueryClient();
   const [result, setResult] = useState<Record<string, string>>({});
@@ -176,6 +202,7 @@ function Integrations() {
         <Card key={g} title={meta.title} action={meta.test && <Button variant="soft" busy={test.isPending && test.variables === meta.test} onClick={() => test.mutate(meta.test!)}>Tester la connexion</Button>}>
           <p className="mb-4 text-xs text-slate-400">{meta.intro}</p>
           {meta.test && result[meta.test] && <p className="mb-4 text-sm">{result[meta.test]}</p>}
+          {g === "qonto" && <QontoOAuth />}
           {g === "company" && <CompanyAutofill onDone={() => qc.invalidateQueries({ queryKey: ["integrations"] }).then(() => setVersion((v) => v + 1))} />}
           <div className="grid gap-4 sm:grid-cols-2">
             {data.filter((f) => f.group === g).map((f) => <div key={`${f.key}-${version}`} className={f.multiline ? "sm:col-span-2" : ""}><IntegrationField f={f} /></div>)}

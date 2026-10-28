@@ -16,6 +16,11 @@ from app.models import BillingDoc, BillingLine, Company, Payment
 from app.services import integrations
 from app.services.qonto import QontoError, _client
 
+
+class QontoForbidden(QontoError):
+    """La clé utilisée n'a pas accès à cette ressource (ex. devis avec une simple clé API)."""
+
+
 INVOICE_STATUS = {"draft": "draft", "unpaid": "sent", "paid": "paid", "canceled": "cancelled"}
 QUOTE_STATUS = {"pending_approval": "sent", "approved": "accepted", "canceled": "refused"}
 MAX_PAGES = 50
@@ -31,7 +36,7 @@ def _list(client: httpx.Client, path: str, key: str, label: str) -> list[dict]:
         if r.status_code == 401:
             raise QontoError("Qonto refuse les identifiants : vérifiez l'identifiant et la clé secrète.")
         if r.status_code == 403:
-            raise QontoError(
+            raise QontoForbidden(
                 f"La clé API Qonto n'a pas accès aux {label} : vérifiez ses droits dans Qonto "
                 "(Paramètres > Intégrations et partenariats > Clé API)."
             )
@@ -146,7 +151,10 @@ def _fill(db: Session, doc: BillingDoc, kind: str, item: dict) -> None:
     doc.issue_date = _day(item.get("issue_date")) or _day(item.get("created_at")) or date.today()
     doc.due_date = _day(item.get("due_date") if kind == "invoice" else item.get("expiry_date"))
     doc.external_url = (item.get("invoice_url") or item.get("quote_url") or "")[:500]
-    doc.notes = (item.get("header") or item.get("footer") or "")[:2000]
+    # Conditions du devis / de la facture ; l'en-tête Qonto sert d'objet.
+    doc.notes = (item.get("terms_and_conditions") or item.get("footer") or "")[:2000]
+    if item.get("header"):
+        doc.title = str(item["header"])[:200]
 
     doc.lines.clear()
     for i, it in enumerate(item.get("items") or []):
@@ -194,17 +202,143 @@ def _sync_payment(db: Session, doc: BillingDoc, kind: str, item: dict) -> None:
     doc.amount_paid = round(sum(float(p.amount) for p in doc.payments), 2)
 
 
-def sync(db: Session, client: httpx.Client | None = None) -> dict:
+def sync(db: Session, client: httpx.Client | None = None, quotes_client: httpx.Client | None = None) -> dict:
+    """Importe factures et devis. Les devis passent par la connexion OAuth si elle existe : avec une
+    simple clé API, Qonto peut les refuser ; les factures sont alors importées quand même."""
+    from app.services import qonto_oauth
+
     own = client is None
     client = client or _client(db)
+    own_q = quotes_client is None and qonto_oauth.is_connected(db)
+    if own_q:
+        try:
+            quotes_client = qonto_oauth.client(db)
+        except qonto_oauth.QontoOAuthError:
+            quotes_client = None
+    warnings: list[str] = []
     try:
         invoices = _list(client, "/client_invoices", "client_invoices", "factures clients")
-        quotes = _list(client, "/quotes", "quotes", "devis")
+        try:
+            quotes = _list(quotes_client or client, "/quotes", "quotes", "devis")
+        except QontoForbidden:
+            quotes = []
+            warnings.append(
+                "Devis non importés : Qonto les réserve à la connexion OAuth "
+                "(Paramètres > Intégrations > Banque Qonto > Se connecter avec Qonto)."
+            )
         created = sum(_upsert(db, "invoice", i) for i in invoices if i.get("id"))
         created += sum(_upsert(db, "quote", q) for q in quotes if q.get("id"))
         db.commit()
         integrations.put(db, "qonto_billing_synced_at", utcnow().isoformat())
-        return {"invoices": len(invoices), "quotes": len(quotes), "created": created}
+        return {"invoices": len(invoices), "quotes": len(quotes), "created": created, "warnings": warnings}
     finally:
         if own:
             client.close()
+        if own_q and quotes_client is not None:
+            quotes_client.close()
+
+
+# ---------- Envoi d'un devis du Hub vers Qonto ----------
+def _rate_str(rate: float) -> str:
+    """Taux Qonto en fraction décimale, au moins 2 décimales : 20 -> "0.20", 5.5 -> "0.055"."""
+    txt = f"{rate / 100:.4f}".rstrip("0")
+    return txt + "0" * max(0, 4 - len(txt))
+
+
+def _money(v: float) -> dict:
+    return {"value": f"{v:.2f}", "currency": "EUR"}
+
+
+def _qonto_client_id(db: Session, c: httpx.Client, company: Company) -> str:
+    """Client Qonto correspondant à la société (n° de TVA puis nom), créé s'il n'existe pas."""
+    vat = (company.vat_number or "").replace(" ", "").upper()
+    for x in _list(c, "/clients", "clients", "clients"):
+        if (vat and (x.get("vat_number") or "").replace(" ", "").upper() == vat) or (
+            _client_name(x).lower() == company.name.lower()
+        ):
+            return x["id"]
+    body = {
+        "kind": "company",
+        "name": company.name,
+        "email": company.email or None,
+        "address": company.address or None,
+        "city": company.city or None,
+        "zip_code": company.postal_code or None,
+        "country_code": "FR" if (company.country or "France").lower() == "france" else None,
+        "vat_number": vat or None,
+        "locale": "fr",
+        "currency": "EUR",
+    }
+    r = _write(c, "/clients", {k: v for k, v in body.items() if v is not None}, "client")
+    return r["client"]["id"]
+
+
+def _write(c: httpx.Client, path: str, body: dict, label: str) -> dict:
+    try:
+        r = c.post(path, json=body)
+    except httpx.HTTPError as exc:
+        raise QontoError("Qonto est momentanément injoignable.") from exc
+    if r.status_code in (401, 403):
+        raise QontoError(
+            "Qonto refuse la création : reconnectez Qonto (Paramètres > Intégrations > Banque Qonto > "
+            "Se connecter avec Qonto) en acceptant les droits sur les devis et les clients."
+        )
+    if r.status_code >= 400:
+        try:
+            errs = r.json().get("errors") or []
+            detail = "; ".join(str(e.get("detail") or e.get("message") or e) for e in errs) or r.text
+        except ValueError:
+            detail = r.text
+        raise QontoError(f"Qonto refuse le {label} ({r.status_code}) : {str(detail)[:300]}")
+    return r.json()
+
+
+def push_quote(db: Session, doc: BillingDoc, client: httpx.Client | None = None) -> BillingDoc:
+    """Crée le devis dans Qonto (statut « en attente » : modifiable, non envoyé au client), puis le
+    Hub le suit comme un devis Qonto (lecture seule, mis à jour à chaque synchronisation)."""
+    from datetime import timedelta
+
+    from app.services import qonto_oauth
+
+    if doc.kind != "quote" or doc.provider == "qonto":
+        raise QontoError("Seuls les devis créés dans le Hub peuvent être envoyés vers Qonto.")
+    company = db.get(Company, doc.company_id) if doc.company_id else None
+    if not company:
+        raise QontoError("Choisissez d'abord le client du devis.")
+    if not doc.lines:
+        raise QontoError("Le devis n'a aucune ligne.")
+    own = client is None
+    try:
+        c = client or qonto_oauth.client(db)
+    except qonto_oauth.QontoOAuthError as exc:
+        raise QontoError(str(exc)) from exc
+    try:
+        items = []
+        for ln in doc.lines:
+            title, _, rest = ln.description.partition("\n")
+            items.append(
+                {
+                    "title": title.strip()[:120] or "Prestation",
+                    "description": rest.strip() or None,
+                    "quantity": f"{ln.quantity:g}",
+                    "unit_price": _money(ln.unit_price),
+                    "vat_rate": _rate_str(ln.vat_rate),
+                }
+            )
+        body = {
+            "client_id": _qonto_client_id(db, c, company),
+            "issue_date": doc.issue_date.isoformat(),
+            "expiry_date": (doc.due_date or doc.issue_date + timedelta(days=30)).isoformat(),
+            "currency": "EUR",
+            "terms_and_conditions": doc.notes or "Devis valable jusqu'à la date d'expiration indiquée.",
+            "header": doc.title or None,
+            "items": [{k: v for k, v in it.items() if v is not None} for it in items],
+        }
+        quote = _write(c, "/quotes", {k: v for k, v in body.items() if v is not None}, "devis")["quote"]
+    finally:
+        if own:
+            c.close()
+    doc.provider, doc.external_id = "qonto", f"quote:{quote['id']}"
+    _fill(db, doc, "quote", quote)
+    db.commit()
+    return doc

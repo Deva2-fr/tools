@@ -60,6 +60,27 @@ FIELDS: list[Field] = [
         "Deva2 > Administration > Comptabilité > Note de frais : la fin de l'URL du dossier, après /folders/",
     ),
     Field("qonto_billing_synced_at", "", "qonto", internal=True),
+    Field(
+        "qonto_oauth_client_id",
+        "Qonto – ID de l'application (OAuth, pour les devis)",
+        "qonto",
+        "Portail développeur Qonto > votre application > Client ID",
+    ),
+    Field(
+        "qonto_oauth_client_secret",
+        "Qonto – Secret de l'application (OAuth)",
+        "qonto",
+        "Portail développeur Qonto > votre application > Client secret",
+        secret=True,
+    ),
+    Field("qonto_oauth_refresh_token", "", "qonto", secret=True, internal=True),
+    Field(
+        "anthropic_api_key",
+        "Clé API Anthropic (Claude)",
+        "ai",
+        "console.anthropic.com > API Keys : sert à améliorer les devis avec l'IA",
+        secret=True,
+    ),
     # Ma société : imprimé sur les devis, factures et notes de frais.
     Field("company_name", "Raison sociale", "company", "Ex : DEVA2"),
     Field("company_legal_form", "Forme juridique et capital", "company", "Ex : SAS au capital de 1 000 €"),
