@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 class SubscriptionIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     kind: Literal["domain", "hosting", "saas", "insurance", "contract", "other"] = "saas"
+    user_id: int | None = None  # responsable
     vendor: str = ""
     cost: float = Field(0, ge=0, lt=100_000_000)
     period: Literal["monthly", "quarterly", "yearly"] = "yearly"

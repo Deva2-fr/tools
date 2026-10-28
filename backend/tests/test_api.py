@@ -1,3 +1,5 @@
+import json
+
 import pyotp
 
 from app.core.security import login_limiter
@@ -139,7 +141,7 @@ def test_expense_pdf_without_google_drive(client):
     }
     e = client.post("/api/expenses", json=body).json()
     assert e["amount_ht"] == 100.0 and e["amount_vat"] == 20.0
-    r = client.post("/api/expenses/save", json=body)
+    r = client.post("/api/expenses/save", data={"data": json.dumps(body)})
     # Sans Google : le PDF est quand même généré et téléchargé, Drive est signalé « non configuré ».
     assert r.status_code == 200 and r.content.startswith(b"%PDF")
     assert r.headers["x-drive-status"] == "not_configured"

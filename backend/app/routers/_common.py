@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, create_model
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -40,6 +41,15 @@ def csv_response(filename: str, header: list[str], rows: list[list[Any]]) -> Res
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+def _commit(db: Session) -> None:
+    """Un lien vers un élément inexistant (société, utilisateur…) donne une erreur lisible, pas une 500."""
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(400, "Élément lié introuvable (il a peut-être été supprimé).") from exc
 
 
 def crud_router(
@@ -88,7 +98,7 @@ def crud_router(
     def create(body: schema_in, db: Session = Depends(get_db), user: User = Depends(require_role(write))):  # type: ignore[valid-type]
         obj = model(**body.model_dump())
         db.add(obj)
-        db.commit()
+        _commit(db)
         audit(db, user.email, f"{name}_created", _label(obj))
         return obj
 
@@ -104,7 +114,7 @@ def crud_router(
             raise HTTPException(404, "Introuvable")
         for k, v in body.model_dump().items():
             setattr(obj, k, v)
-        db.commit()
+        _commit(db)
         audit(db, user.email, f"{name}_updated", _label(obj))
         return obj
 

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Row, api } from "../api";
-import { ResourcePage } from "../components";
+import { ResourcePage, useRefOptions } from "../components";
 import { Badge, Button, Empty, ErrorMsg, Loading, Modal, cx, fmtDate, fmtMoney } from "../ui";
 import { STATUS } from "./Billing";
 
@@ -104,8 +104,11 @@ function Spent({ sub }: { sub: Row }) {
   );
 }
 
+const userRef = { endpoint: "/users/directory", label: (r: Row) => r.name };
+
 export default function Renewals() {
   const today = new Date().toISOString().slice(0, 10);
+  const users = Object.fromEntries(useRefOptions(userRef.endpoint, userRef.label));
   const [links, setLinks] = useState<Row | null>(null);
   return (
     <>
@@ -119,6 +122,7 @@ export default function Renewals() {
         { name: "name", label: "Nom", required: true, hint: "Ex : formasyl.org, Google Workspace, RC Pro" },
         { name: "kind", label: "Type", type: "select", options: KINDS },
         { name: "vendor", label: "Fournisseur", hint: "OVH, Google, AXA…" },
+        { name: "user_id", label: "Responsable", type: "ref", ref: userRef, hint: "Utilisateur du Hub concerné (licence nominative, carte utilisée…)" },
         { name: "cost", label: "Coût HT par période (€)", type: "number" },
         { name: "period", label: "Périodicité", type: "select", options: PERIODS },
         { name: "renewal_date", label: "Prochain renouvellement", type: "date" },
@@ -132,6 +136,7 @@ export default function Renewals() {
         { label: "Nom", render: (r) => <span className="font-medium">{r.name}</span> },
         { label: "Type", render: (r) => <Badge>{KINDS.find(([k]) => k === r.kind)?.[1]}</Badge> },
         { label: "Fournisseur", render: (r) => r.vendor || "—" },
+        { label: "Responsable", render: (r) => (r.user_id ? users[r.user_id] ?? "—" : <span className="text-slate-400">—</span>) },
         { label: "Coût HT", render: (r) => `${fmtMoney(r.cost)} / ${PERIODS.find(([k]) => k === r.period)?.[1].toLowerCase()}` },
         { label: "Renouvellement", render: (r) => r.renewal_date ? <span className="flex items-center gap-2">{fmtDate(r.renewal_date)}{r.renewal_date < today ? <Badge tone="red">Dépassé</Badge> : (new Date(r.renewal_date).getTime() - Date.now()) / 864e5 < (r.notice_days || 30) ? <Badge tone="amber">Bientôt</Badge> : null}</span> : "—" },
         { label: "Auto", render: (r) => (r.auto_renew ? "Oui" : <Badge tone="amber">Non</Badge>) },

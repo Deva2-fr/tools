@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.security import admin_user, hash_password
+from app.core.security import admin_user, current_user, hash_password
 from app.models import AuditLog, User
 from app.routers.auth import audit
 from app.schemas import UserCreate, UserOut
@@ -14,6 +14,13 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.get("", response_model=list[UserOut])
 def list_users(_: User = Depends(admin_user), db: Session = Depends(get_db)):
     return db.scalars(select(User).order_by(User.email)).all()
+
+
+@router.get("/directory")
+def directory(_: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Liste minimale des utilisateurs actifs (nom, e-mail) pour les menus « Utilisateur »."""
+    rows = db.scalars(select(User).where(User.is_active.is_(True)).order_by(User.name, User.email))
+    return [{"id": u.id, "name": u.name or u.email, "email": u.email} for u in rows]
 
 
 @router.post("", response_model=UserOut, status_code=201)
