@@ -152,6 +152,21 @@ Rien à faire : au démarrage, la base existante est reconnue et migrée automat
 
 ---
 
+## 12. Banque Qonto (trésorerie automatique)
+
+Le Hub importe tout seul, **toutes les heures**, vos comptes Qonto, leurs soldes et les transactions réglées (les 90 derniers jours lors de la première synchronisation). Il ne fait que **lire** : aucun virement n'est possible depuis le Hub.
+
+1. Connectez-vous à Qonto (application web) avec un compte **propriétaire ou administrateur**.
+2. **Paramètres → Intégrations et partenariats → Clé API** : notez l'**Identifiant** et la **Clé secrète**.
+3. Dans le Hub : **Paramètres → Intégrations → Banque Qonto**, collez les deux valeurs, puis **Tester la connexion** (« Connexion OK – … : N compte(s) »).
+4. **Trésorerie → Synchroniser Qonto** pour lancer la première importation sans attendre. Un compte « Qonto – … » apparaît par compte bancaire, et son solde est celui de Qonto.
+
+À savoir :
+- Les opérations en attente ne sont pas importées : elles arrivent quand elles sont réglées.
+- Le solde d'un compte Qonto est recalé à chaque synchronisation. Inutile de le modifier à la main.
+- Vos comptes saisis à la main (ou importés en CSV) restent utilisables à côté.
+- Si vous régénérez la clé chez Qonto, remettez-la dans le Hub.
+
 ## Dépannage rapide
 
 | Symptôme | Cause probable |
@@ -161,5 +176,6 @@ Rien à faire : au démarrage, la base existante est reconnue et migrée automat
 | « Modèle introuvable » (Google) | Le Doc n'est pas partagé avec l'e-mail du compte de service |
 | Aucune alerte reçue | Aucun canal créé, ou seuil trop haut ; utilisez « Envoyer un test » |
 | « Aucune fiche collaborateur à votre e-mail » (congés) | Créez le collaborateur dans Équipe → Collaborateurs avec le même e-mail que son compte |
+| « Qonto refuse les identifiants » | Identifiant ou clé secrète erronés (ou clé régénérée chez Qonto) : recopiez-les dans Paramètres → Intégrations |
 | Le PDF de facture affiche « Votre société » | Complétez Paramètres → Intégrations → Ma société |
 | Un site de dev apparaît « Hors ligne » | Il renvoie 401/403 : renseignez le *code HTTP attendu* |

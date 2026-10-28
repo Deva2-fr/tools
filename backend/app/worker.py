@@ -7,7 +7,17 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.core.config import get_settings
 from app.core.db import SessionLocal
-from app.services import billing, digest, integrations, monitoring, outlook, renewals, security_watch, taxes
+from app.services import (
+    billing,
+    digest,
+    integrations,
+    monitoring,
+    outlook,
+    qonto,
+    renewals,
+    security_watch,
+    taxes,
+)
 
 log = logging.getLogger("deva2.worker")
 
@@ -63,6 +73,12 @@ def job_renewals(db):
     log.info("Rappels de renouvellement : %d", renewals.send_reminders(db))
 
 
+@safe("qonto")
+def job_qonto(db):
+    if qonto.is_configured(db):
+        log.info("Qonto : %d nouvelle(s) transaction(s)", qonto.sync(db)["created"])
+
+
 @safe("resume_quotidien")
 def job_digest(db):
     digest.send(db)
@@ -74,6 +90,7 @@ def main():
     sched = BlockingScheduler(timezone=tz)
     sched.add_job(job_monitoring, "interval", minutes=1, max_instances=1, coalesce=True)
     sched.add_job(job_mail, "interval", minutes=5, max_instances=1, coalesce=True)
+    sched.add_job(job_qonto, "interval", hours=1, max_instances=1, coalesce=True)
     sched.add_job(job_cve, CronTrigger(hour=3, minute=15, timezone=tz))
     sched.add_job(job_taxes, CronTrigger(hour=8, minute=30, timezone=tz))
     sched.add_job(job_billing, CronTrigger(hour=8, minute=35, timezone=tz))

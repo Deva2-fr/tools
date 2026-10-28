@@ -9,7 +9,7 @@ from app.core.db import get_db
 from app.core.security import admin_user
 from app.models import User
 from app.routers.auth import audit
-from app.services import google_docs, integrations, outlook
+from app.services import google_docs, integrations, outlook, qonto
 
 router = APIRouter(prefix="/integrations", tags=["intégrations"])
 
@@ -69,6 +69,8 @@ def test_service(service: str, _: User = Depends(admin_user), db: Session = Depe
                 if user := integrations.get(db, "smtp_user"):
                     s.login(user, integrations.get(db, "smtp_password"))
             return {"message": "Connexion SMTP OK"}
+        if service == "qonto":
+            return {"message": qonto.test_connection(db)}
         if service == "nvd":
             headers = {"apiKey": k} if (k := integrations.get(db, "nvd_api_key")) else {}
             r = httpx.get(

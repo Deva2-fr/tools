@@ -9,6 +9,7 @@ const GROUPS: Record<string, { title: string; test?: string; intro: string }> = 
   outlook: { title: "Outlook (Microsoft 365)", test: "outlook", intro: "Pour lire les mails. Guide : docs/CONFIGURATION.md, section 3." },
   google: { title: "Google (notes de frais en PDF)", test: "google", intro: "Pour remplir le modèle Google Doc et en faire un PDF. Guide : section 4." },
   email: { title: "E-mail d'envoi des alertes (SMTP)", test: "smtp", intro: "Pour recevoir les alertes par e-mail. Guide : section 5." },
+  qonto: { title: "Banque Qonto (trésorerie)", test: "qonto", intro: "Synchronise automatiquement (toutes les heures) vos comptes et transactions Qonto dans Trésorerie. Lecture seule. Guide : section 12." },
   security: { title: "Veille de sécurité", test: "nvd", intro: "Optionnel, mais une clé NVD gratuite rend la veille plus rapide. Guide : section 6." },
 };
 

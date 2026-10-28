@@ -405,6 +405,11 @@ class BankAccount(Base):
     name: Mapped[str] = mapped_column(String(120))
     initial_balance: Mapped[float] = mapped_column(Numeric(12, 2, asdecimal=False), default=0)
     iban: Mapped[str] = mapped_column(String(40), default="")
+    provider: Mapped[str] = mapped_column(
+        String(20), default="manual", server_default="manual"
+    )  # manual | qonto
+    external_id: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class Transaction(Base):
@@ -415,6 +420,7 @@ class Transaction(Base):
     label: Mapped[str] = mapped_column(String(300))
     amount: Mapped[float] = mapped_column(Numeric(12, 2, asdecimal=False))  # + encaissement / - décaissement
     category: Mapped[str] = mapped_column(String(80), default="")
+    external_id: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True)  # id Qonto
 
 
 # ======================= Temps =======================

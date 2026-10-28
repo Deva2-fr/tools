@@ -66,6 +66,19 @@ FIELDS: list[Field] = [
         "Dossier Drive partagé avec le compte de service",
     ),
     Field(
+        "qonto_login",
+        "Qonto – Identifiant",
+        "qonto",
+        "Qonto > Paramètres > Intégrations et partenariats > Clé API : « Identifiant »",
+    ),
+    Field(
+        "qonto_secret_key",
+        "Qonto – Clé secrète",
+        "qonto",
+        "Même écran : « Clé secrète ». Le Hub ne fait que lire comptes et transactions",
+        secret=True,
+    ),
+    Field(
         "nvd_api_key",
         "Clé API NVD (optionnelle)",
         "security",

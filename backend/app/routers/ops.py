@@ -2,7 +2,7 @@
 
 import mimetypes
 import secrets
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -42,7 +42,7 @@ from app.schemas_ops import (
     TransactionImport,
     TransactionIn,
 )
-from app.services import renewals, treasury
+from app.services import qonto, renewals, treasury
 
 router = APIRouter(dependencies=[Depends(current_user)])
 
@@ -67,6 +67,7 @@ accounts, _ = crud_router(
     write="manager",
     order_by=[BankAccount.name],
     label=lambda o: o.name,
+    extra_out={"provider": (str, "manual"), "last_synced_at": (datetime | None, None)},
 )
 transactions, _ = crud_router(
     "/transactions",
@@ -135,6 +136,23 @@ def import_transactions(
         raise HTTPException(404, "Compte introuvable")
     res = treasury.import_csv(db, body.account_id, body.csv)
     audit(db, user.email, "transactions_imported", str(res["created"]))
+    return res
+
+
+@router.get("/treasury/qonto", dependencies=[Depends(manager_user)])
+def qonto_status(db: Session = Depends(get_db)):
+    synced = db.scalars(select(BankAccount).where(BankAccount.provider == "qonto")).all()
+    last = max((a.last_synced_at for a in synced if a.last_synced_at), default=None)
+    return {"configured": qonto.is_configured(db), "accounts": len(synced), "last_synced_at": last}
+
+
+@router.post("/treasury/qonto/sync")
+def qonto_sync(db: Session = Depends(get_db), user: User = Depends(manager_user)):
+    try:
+        res = qonto.sync(db)
+    except qonto.QontoError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    audit(db, user.email, "qonto_synced", f"{res['created']} transaction(s)")
     return res
 
 
