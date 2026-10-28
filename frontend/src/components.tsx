@@ -98,6 +98,7 @@ export function FormModal({
   busy,
   error,
   submitLabel = "Enregistrer",
+  top,
 }: {
   title: string;
   fields: FieldDef[];
@@ -107,8 +108,11 @@ export function FormModal({
   busy?: boolean;
   error?: unknown;
   submitLabel?: string;
+  /** Contenu affiché au-dessus des champs ; `patch` met à jour plusieurs champs d'un coup. */
+  top?: (patch: (values: Record<string, unknown>) => void) => ReactNode;
 }) {
   const [state, setState] = useState<Record<string, unknown>>({ ...initial });
+  const patch = (values: Record<string, unknown>) => setState((s) => ({ ...s, ...values }));
   return (
     <Modal title={title} onClose={onClose} wide>
       <form
@@ -118,6 +122,7 @@ export function FormModal({
         }}
         className="grid gap-4 sm:grid-cols-2"
       >
+        {top && <div className="sm:col-span-2">{top(patch)}</div>}
         {fields.map((f) => (
           <div key={f.name} className={f.wide || f.type === "textarea" ? "sm:col-span-2" : ""}>
             <FieldInput f={f} value={state[f.name]} onChange={(v) => setState((s) => ({ ...s, [f.name]: v }))} />
@@ -157,6 +162,7 @@ export function ResourcePage({
   canWrite = true,
   empty,
   rowClass,
+  formTop,
 }: {
   title: string;
   subtitle?: string;
@@ -172,6 +178,7 @@ export function ResourcePage({
   canWrite?: boolean;
   empty?: string;
   rowClass?: (r: Row) => string;
+  formTop?: (patch: (values: Record<string, unknown>) => void) => ReactNode;
 }) {
   const qc = useQueryClient();
   const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get("q") ?? "");
@@ -266,6 +273,7 @@ export function ResourcePage({
           onSubmit={(b) => save.mutate(b)}
           busy={save.isPending}
           error={save.error}
+          top={formTop}
         />
       )}
     </>

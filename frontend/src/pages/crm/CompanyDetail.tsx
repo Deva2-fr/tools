@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { Row, api } from "../../api";
 import { FormModal, defaults } from "../../components";
 import { Badge, Button, Card, Empty, ErrorMsg, Loading, PageHeader, fmtDate, fmtDateTime, fmtMoney } from "../../ui";
+import { CompanyLookup } from "./CompanyLookup";
 import { STAGES, companyFields, contactFields, kindLabel, kindTone, oppFields, taskFields } from "./shared";
 
 interface Overview {
@@ -99,7 +100,7 @@ export default function CompanyDetail() {
         </Card>
         {!!d.files.length && <Card title="Documents" className="lg:col-span-2"><ul className="text-sm">{d.files.map((f) => <li key={f.id}> {f.name} <Badge>{f.category}</Badge></li>)}</ul></Card>}
       </div>
-      {modal === "company" && <FormModal title="Modifier la société" fields={companyFields} initial={c} onClose={() => setModal(null)} onSubmit={(b) => saveCompany.mutate(b)} busy={saveCompany.isPending} error={saveCompany.error} />}
+      {modal === "company" && <FormModal title="Modifier la société" fields={companyFields} initial={c} onClose={() => setModal(null)} onSubmit={(b) => saveCompany.mutate(b)} busy={saveCompany.isPending} error={saveCompany.error} top={(patch) => <CompanyLookup onPick={patch} syncName={false} />} />}
       {modal === "contact" && <FormModal title="Nouveau contact" fields={contactFields} initial={defaults(contactFields, base)} onClose={() => setModal(null)} onSubmit={(b) => addContact.mutate(b)} busy={addContact.isPending} error={addContact.error} />}
       {modal === "opp" && <FormModal title="Nouvelle affaire" fields={oppFields} initial={defaults(oppFields, { ...base, amount: 0, probability: 10, stage: "prospect" })} onClose={() => setModal(null)} onSubmit={(b) => addOpp.mutate(b)} busy={addOpp.isPending} error={addOpp.error} />}
       {modal === "task" && <FormModal title="Nouvelle tâche" fields={taskFields} initial={defaults(taskFields, base)} onClose={() => setModal(null)} onSubmit={(b) => addTask.mutate(b)} busy={addTask.isPending} error={addTask.error} />}
