@@ -59,7 +59,7 @@ Dans le Hub : **Paramètres → Intégrations → Boîtes mail (IMAP) → + Boî
 - *Dossier des envoyés* : à laisser vide, il est détecté seul (« Sent », « Éléments envoyés »…). Renseignez-le seulement si le test dit qu'il est introuvable ;
 - *Adresse du webmail* : facultatif (ex. `https://www.ovh.com/fr/mail/`), pour le bouton **Ouvrir le webmail**.
 
-Cliquez **Tester la connexion** sur la ligne de la boîte (« Connexion OK – N message(s)… »), puis **Mails → Actualiser**. Toutes les boîtes actives sont ensuite relues **toutes les 5 minutes**. Le Hub importe **toute la boîte de réception** (jusqu'aux 5 000 mails les plus récents) : le premier import se fait par paquets de 400, en quelques minutes, puis seuls les nouveaux mails sont téléchargés ; les drapeaux (lu, répondu) sont relus à chaque passage et un mail supprimé ou déplacé sur le serveur disparaît du Hub. Dans **Mails**, le filtre **Tous les mails**, la recherche (objet, expéditeur, texte) et **Charger plus** permettent de tout parcourir. Dans la page **Mails**, un bouton par boîte (avec le nombre de mails à traiter) permet de passer de l'une à l'autre ; « Toutes les boîtes » les regroupe. Une boîte en erreur (mot de passe changé…) est signalée par un point rouge sans bloquer les autres.
+Cliquez **Tester la connexion** sur la ligne de la boîte (« Connexion OK – N message(s)… »), puis **Mails → Actualiser**. Toutes les boîtes actives sont ensuite relues **toutes les 5 minutes**. Le Hub importe **toute la boîte de réception** (jusqu'aux 5 000 mails les plus récents) : le premier import se fait par paquets de 400, en quelques minutes, puis seuls les nouveaux mails sont téléchargés ; les drapeaux (lu, répondu) sont relus à chaque passage et un mail supprimé ou déplacé sur le serveur disparaît du Hub. La page **Mails** fonctionne comme une messagerie : à gauche les boîtes et les filtres (À traiter, Tous les mails, Répondus, Informations), au milieu la liste avec recherche, à droite le mail **complet** quand on clique dessus (texte ou mise en forme, pièces jointes à télécharger, boutons de tag). Le mail est lu à la demande sur le serveur, sans le marquer comme lu ; les images distantes sont bloquées par défaut (« Afficher les images »). Dans la page **Mails**, un bouton par boîte (avec le nombre de mails à traiter) permet de passer de l'une à l'autre ; « Toutes les boîtes » les regroupe. Une boîte en erreur (mot de passe changé…) est signalée par un point rouge sans bloquer les autres.
 
 Si vous aviez déjà renseigné une boîte unique avant cette version, elle est reprise automatiquement comme première boîte.
 
@@ -137,11 +137,18 @@ La recherche se fait par mot-clé : vérifiez toujours que votre version est con
 
 *Impôts & TVA → Pré-remplir* crée les échéances types de l'année : **TVA trimestrielle** (CA3 vers le 20 janvier, avril, juillet et octobre, pour le trimestre écoulé), **déclaration annuelle de résultats** (liasse fiscale vers le 15 mai, avec le relevé de solde d'IS s'il y a de l'IS à payer : pas d'acomptes) et **CFE** (15 décembre). Pas d'URSSAF. ⚠️ **Ce sont des dates indicatives** (société à l'IS, exercice = année civile) : faites-les confirmer par votre expert-comptable puis ajustez dates et montants. Vous pouvez ajouter vos propres échéances, avec répétition mensuelle / trimestrielle / annuelle : quand vous cliquez **« C'est payé »**, la suivante est créée automatiquement. **Exporter vers mon agenda** génère un fichier `.ics` (Outlook, Google Agenda…).
 
+**Synchroniser avec Google Agenda** (utilise la même clé Google que les notes de frais, section 4) :
+1. Dans la console Google Cloud du projet `deva2-hub`, activez aussi **Google Calendar API**.
+2. Dans Google Agenda, ouvrez les **Paramètres de l'agenda** voulu (créez par exemple un agenda « Deva2 – Échéances ») → **Partager avec des personnes** → ajoutez l'e-mail du compte de service avec le droit **« Apporter des modifications aux événements »**.
+3. Dans le Hub, **Impôts & TVA → Google Agenda → + Ajouter un agenda** : collez l'**ID de l'agenda** (section « Intégrer l'agenda »). Il apparaît alors dans la liste : choisissez-le.
+
+Chaque échéance devient un événement « journée entière » (rouge, rappels 7 jours et 1 jour avant ; vert et sans rappel une fois payée). Création, modification, paiement et suppression sont reportés aussitôt, et tout est resynchronisé chaque heure. Choisir « Aucun agenda » arrête la synchronisation.
+
 ---
 
 ## 8. Ma société (pour les devis et factures)
 
-**Paramètres → Intégrations → Ma société** (aussi imprimé sur les notes de frais) : raison sociale, forme juridique et capital, SIRET, n° de TVA intracommunautaire, adresse, e-mail, téléphone, IBAN/BIC, délai de paiement par défaut (30 jours) et mentions légales éventuelles (ex. « TVA non applicable, art. 293 B du CGI » si vous êtes en franchise). Ces informations sont imprimées sur chaque PDF : **complétez-les avant d'émettre votre première facture.**
+**Paramètres → Intégrations → Ma société** (aussi imprimé sur les notes de frais) : tapez le nom de la société (ou son SIREN) et choisissez-la dans la liste, comme pour une fiche Société : raison sociale, forme juridique, SIRET, TVA et adresse se remplissent seuls. Complétez ensuite : raison sociale, forme juridique et capital, SIRET, n° de TVA intracommunautaire, adresse, e-mail, téléphone, IBAN/BIC, délai de paiement par défaut (30 jours) et mentions légales éventuelles (ex. « TVA non applicable, art. 293 B du CGI » si vous êtes en franchise). Ces informations sont imprimées sur chaque PDF : **complétez-les avant d'émettre votre première facture.**
 
 Le PDF contient déjà les mentions obligatoires usuelles (pénalités de retard, indemnité forfaitaire de 40 €). Faites valider le modèle par votre expert-comptable.
 

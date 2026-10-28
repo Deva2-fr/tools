@@ -55,6 +55,8 @@ class FakeImap:
         what = args[1]
         data = []
         for u in uids:
+            if u not in self.current:  # comme un vrai serveur : UID inconnu ignoré
+                continue
             raw, flags = self.current[u]
             if what == "(UID FLAGS RFC822.SIZE)":
                 data.append(f"{u} (UID {u} FLAGS ({' '.join(flags)}) RFC822.SIZE {len(raw)})".encode())
@@ -320,3 +322,49 @@ def test_messages_filters_search_and_paging(client, db, monkeypatch):
     ]
     page2 = client.get("/api/mail/messages?limit=2&offset=4")
     assert len(page2.json()) == 1 and page2.headers["x-total-count"] == "5"
+
+
+def test_read_full_mail_and_attachment(client, db, monkeypatch):
+    from email.message import EmailMessage
+
+    m = EmailMessage()
+    m["From"] = "Bob Client <bob@client.fr>"
+    m["To"] = "contact@deva2.fr"
+    m["Cc"] = "Ana <ana@client.fr>"
+    m["Subject"] = "Devis complet"
+    m["Date"] = "Mon, 26 Oct 2026 09:00:00 +0100"
+    m["Message-ID"] = "<full@client.fr>"
+    m.set_content("Bonjour,\n\nVoici le cahier des charges complet.\n\n" + "Ligne détaillée.\n" * 200)
+    m.add_alternative(
+        "<p>Bonjour,</p><p>Voici le <b>cahier des charges</b>.</p><script>alert(1)</script>", subtype="html"
+    )
+    m.add_attachment(
+        b"%PDF-1.4 cahier", maintype="application", subtype="pdf", filename="cahier des charges.pdf"
+    )
+    inbox = {7: (m.as_bytes(), ["\\Seen"])}
+    box = add_box(db)
+    fake = FakeImap(inbox, {})
+    mail_imap.sync_inbox(db, box, conn=fake)
+    monkeypatch.setattr(mail_imap, "connect", lambda _box: FakeImap(inbox, {}))
+    mid = client.get("/api/mail/messages").json()[0]["id"]
+
+    r = client.get(f"/api/mail/messages/{mid}/content")
+    assert r.status_code == 200, r.text
+    c = r.json()
+    assert (
+        c["subject"] == "Devis complet"
+        and c["from"] == ["Bob Client <bob@client.fr>"]
+        and c["cc"] == ["Ana <ana@client.fr>"]
+    )
+    assert c["text"].count("Ligne détaillée.") == 200  # le texte entier, pas un aperçu
+    assert "<b>cahier des charges</b>" in c["html"]
+    (att,) = c["attachments"]
+    assert att["name"] == "cahier des charges.pdf" and att["type"] == "application/pdf"
+    dl = client.get(f"/api/mail/messages/{mid}/attachments/{att['index']}")
+    assert dl.content == b"%PDF-1.4 cahier" and dl.headers["content-type"] == "application/octet-stream"
+    assert "attachment" in dl.headers["content-disposition"]
+
+    # Mail disparu du serveur : message clair
+    monkeypatch.setattr(mail_imap, "connect", lambda _box: FakeImap({}, {}))
+    gone = client.get(f"/api/mail/messages/{mid}/content")
+    assert gone.status_code == 400 and "plus sur le serveur" in gone.json()["detail"]

@@ -1,3 +1,5 @@
+from urllib.parse import quote
+
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse, Response
@@ -238,6 +240,52 @@ def messages(
     response.headers["X-Total-Count"] = str(len(out))
     response.headers["X-Counts"] = ",".join(f"{k}={v}" for k, v in counts.items())
     return out[max(offset, 0) : max(offset, 0) + min(max(limit, 1), 500)]
+
+
+def _message(db: Session, message_id: int) -> MailMessage:
+    m = db.get(MailMessage, message_id)
+    if not m:
+        raise HTTPException(404)
+    return m
+
+
+def _raw(db: Session, m: MailMessage) -> bytes:
+    box = db.get(Mailbox, m.mailbox_id) if m.mailbox_id else None
+    if not box or m.imap_uid is None:
+        raise HTTPException(409, "Mail pas encore synchronisé : cliquez sur Actualiser puis réessayez.")
+    try:
+        return mail_imap.fetch_raw(box, m.imap_uid)
+    except mail_imap.ImapError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/messages/{message_id}/content", dependencies=[Depends(current_user)])
+def content(message_id: int, db: Session = Depends(get_db)):
+    """Mail complet, lu à la demande sur le serveur (rien n'est stocké ni marqué comme lu)."""
+    m = _message(db, message_id)
+    if m.mailbox_id is None:  # Microsoft 365
+        try:
+            data = outlook.message_content(db, m.graph_id)
+        except Exception as exc:
+            raise HTTPException(502, f"Lecture impossible : {exc}") from exc
+    else:
+        data = mail_imap.full_content(_raw(db, m))
+    return data | {"id": m.id, "tag": outlook.display_tag(m), "web_link": m.web_link}
+
+
+@router.get("/messages/{message_id}/attachments/{index}", dependencies=[Depends(current_user)])
+def attachment(message_id: int, index: int, db: Session = Depends(get_db)):
+    m = _message(db, message_id)
+    try:
+        name, ctype, data = mail_imap.attachment(_raw(db, m), index)
+    except mail_imap.ImapError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    # Toujours en téléchargement (jamais affiché dans le Hub) : une pièce jointe peut être piégée.
+    return Response(
+        data,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"},
+    )
 
 
 @router.put("/messages/{message_id}/tag", response_model=MailOut, dependencies=[Depends(current_user)])

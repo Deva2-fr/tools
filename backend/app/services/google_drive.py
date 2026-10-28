@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.services import integrations
 
-SCOPES = "https://www.googleapis.com/auth/drive"
+SCOPES = "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/calendar"
 DRIVE = "https://www.googleapis.com/drive/v3"
 UPLOAD = "https://www.googleapis.com/upload/drive/v3/files"
 FOLDER_MIME = "application/vnd.google-apps.folder"
