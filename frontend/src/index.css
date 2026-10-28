@@ -9,3 +9,18 @@ table th { @apply font-medium; }
 html { -webkit-text-size-adjust: 100%; }
 /* iOS zoome sur les champs en dessous de 16 px : taille normale sur mobile, compacte sur ordinateur. */
 @media (max-width: 639px) { input, select, textarea { font-size: 16px; } }
+
+/* Guide interactif */
+.tour-spot {
+  box-shadow: 0 0 0 2px rgb(52 211 153), 0 0 0 9999px rgba(12, 20, 17, 0.62);
+  transition: top 0.45s cubic-bezier(0.22, 1, 0.36, 1), left 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.45s cubic-bezier(0.22, 1, 0.36, 1), height 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: tour-fade 0.3s ease-out;
+}
+.tour-pulse { animation: tour-pulse 1.8s ease-out infinite; }
+.tour-in { animation: tour-in 0.35s cubic-bezier(0.22, 1, 0.36, 1); }
+.tour-fade { animation: tour-fade 0.3s ease-out; }
+@keyframes tour-pulse { 0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55); } 100% { box-shadow: 0 0 0 14px rgba(52, 211, 153, 0); } }
+@keyframes tour-in { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes tour-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .tour-spot, .tour-pulse, .tour-in, .tour-fade { animation: none; transition: none; } }

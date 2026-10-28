@@ -41,7 +41,7 @@ export default function Time({ user }: { user: User }) {
   return (
     <>
       <PageHeader title="Suivi du temps" subtitle="Notez le temps passé par client : le Hub en déduit votre rentabilité." />
-      {isManager(user) && <div className="mb-4 flex gap-2">{([["mine", "Saisie du mois"], ["report", "Rentabilité"]] as const).map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={cx("rounded px-3 py-1.5 text-sm font-medium", tab === k ? "bg-brand-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200")}>{l}</button>)}</div>}
+      {isManager(user) && <div data-tour="time-tabs" className="mb-4 flex gap-2">{([["mine", "Saisie du mois"], ["report", "Rentabilité"]] as const).map(([k, l]) => <button key={k} onClick={() => setTab(k)} className={cx("rounded px-3 py-1.5 text-sm font-medium", tab === k ? "bg-brand-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200")}>{l}</button>)}</div>}
       {tab === "report" ? <Report /> : (
         <>
           <Card className="mb-6">

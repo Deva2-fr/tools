@@ -30,14 +30,14 @@ export default function Dashboard({ user }: { user: User }) {
   return (
     <>
       <PageHeader title="Tableau de bord" subtitle="Tout ce qui demande votre attention, en un coup d'œil." />
-      <div className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-300 bg-slate-300 lg:grid-cols-4">
+      <div data-tour="dash-tech" className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-300 bg-slate-300 lg:grid-cols-4">
         <Stat label="Sites en ligne" value={`${data.projects.up}/${data.projects.total}`} tone={data.projects.down ? "text-red-700" : "text-emerald-800"} to="/projets" />
         <Stat label="Alertes ouvertes" value={data.alerts_open} tone={data.alerts_open ? "text-amber-700" : "text-slate-900"} to="/alertes" />
         <Stat label="Failles à traiter" value={data.vulnerabilities_open} tone={data.vulnerabilities_open ? "text-red-700" : "text-slate-900"} to="/alertes" />
         <Stat label="Mails à répondre" value={data.mails_to_reply} tone={data.mails_to_reply ? "text-brand-600" : "text-slate-900"} to="/mails" />
       </div>
       {data.finance && (
-        <div className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-300 bg-slate-300 lg:grid-cols-4">
+        <div data-tour="dash-finance" className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-300 bg-slate-300 lg:grid-cols-4">
           <Stat label="Facturé cette année (HT)" value={fmtMoney(data.finance.invoiced_ht)} tone="text-slate-900" to="/facturation" />
           <Stat label="Reste à encaisser" value={fmtMoney(data.finance.outstanding)} tone={data.finance.overdue ? "text-red-700" : "text-amber-700"} to="/facturation" />
           <Stat label="Trésorerie" value={fmtMoney(data.finance.balance)} tone={data.finance.balance < 0 ? "text-red-700" : "text-emerald-800"} to="/tresorerie" />

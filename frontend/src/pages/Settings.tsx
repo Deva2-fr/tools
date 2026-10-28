@@ -312,7 +312,7 @@ export default function Settings({ user }: { user: User }) {
   return (
     <>
       <PageHeader title="Paramètres" subtitle="Connexions aux services, sécurité du compte et utilisateurs." />
-      <div className="mb-6 flex gap-1 overflow-x-auto border-b border-slate-200 sm:gap-2">
+      <div data-tour="settings-tabs" className="mb-6 flex gap-1 overflow-x-auto border-b border-slate-200 sm:gap-2">
         {tabs.map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)} className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium sm:px-4 ${tab === k ? "border-brand-600 text-brand-700" : "border-transparent text-slate-500 hover:text-slate-800"}`}>{label}</button>
         ))}

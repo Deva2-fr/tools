@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { resetTours } from "../tour/tours";
 import { SignatureRow, User, api } from "../api";
 import { Badge, Card, Empty, ErrorMsg, Loading, PageHeader, fmtDate, fmtMoney } from "../ui";
 
@@ -61,6 +63,7 @@ function Stat({ label, value, sub, to, tone }: { label: string; value: string | 
 export default function Profile({ me }: { me: User }) {
   const { id } = useParams();
   const uid = id ? Number(id) : me.id;
+  const [guides, setGuides] = useState(false);
   const q = useQuery({ queryKey: ["profile", uid], queryFn: () => api<Summary>(`/users/${uid}/summary`) });
   if (q.error) return <ErrorMsg error={q.error} />;
   if (!q.data) return <Loading />;
@@ -69,7 +72,7 @@ export default function Profile({ me }: { me: User }) {
     <>
       <PageHeader title={u.name} subtitle={`${u.email} · ${ROLE[u.role] ?? u.role}${u.signer_roles.length ? ` · ${u.signer_roles.map((r) => SIGNER[r]).join(", ")} (signataire des notes de frais)` : ""}`}
         action={<div className="flex flex-wrap gap-2">{!u.is_active && <Badge tone="red">Désactivé</Badge>}<Badge tone={u.totp_enabled ? "green" : "amber"}>{u.totp_enabled ? "2FA activée" : "2FA non activée"}</Badge></div>} />
-      <div className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-300 bg-slate-300 lg:grid-cols-6">
+      <div data-tour="profile-stats" className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-300 bg-slate-300 lg:grid-cols-6">
         <Stat label="Notes de frais" value={ex.count} sub={`${ex.year_count} cette année · ${fmtMoney(ex.year_total)}`} to="/notes-de-frais" />
         <Stat label="Sans justificatif" value={ex.without_receipt} tone={ex.without_receipt ? "text-amber-700" : ""} sub="notes à compléter" />
         <Stat label="Abonnements" value={subs.active} sub={`${fmtMoney(subs.annual_cost)} HT / an${subs.count > subs.active ? ` · ${subs.count - subs.active} inactif(s)` : ""}`} to="/abonnements" />
@@ -105,7 +108,10 @@ export default function Profile({ me }: { me: User }) {
         </Card>
       </div>
       <Signatures userId={u.id} />
-      <p className="mt-6 text-xs text-slate-400">Compte créé le {fmtDate(u.created_at)}.</p>
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
+        <p>Compte créé le {fmtDate(u.created_at)}.</p>
+        {u.id === me.id && <button data-tour="reset-guides" className="text-brand-600 hover:underline" onClick={() => { resetTours(me.id); setGuides(true); }}>{guides ? "Guides réactivés : ils se relanceront à la prochaine visite de chaque section." : "Revoir tous les guides"}</button>}
+      </div>
     </>
   );
 }

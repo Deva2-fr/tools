@@ -21,7 +21,7 @@ export default function Tasks({ user }: { user: User }) {
   return (
     <>
       <PageHeader title="Tâches" subtitle="Votre to-do partagée : rappels de relance, rendez-vous à préparer, choses à ne pas oublier." />
-      <Card className="mb-6">
+      <Card className="mb-6" tour="tasks-add">
         <form className="flex flex-wrap gap-3" onSubmit={(e) => { e.preventDefault(); if (title.trim()) add.mutate(); }}>
           <div className="min-w-[240px] flex-1"><input placeholder="Nouvelle tâche (ex : Relancer Acme pour le devis)" value={title} onChange={(e) => setTitle(e.target.value)} /></div>
           <div className="w-44"><input type="date" value={due} onChange={(e) => setDue(e.target.value)} /></div>
@@ -29,12 +29,12 @@ export default function Tasks({ user }: { user: User }) {
         </form>
         <ErrorMsg error={add.error} />
       </Card>
-      <div className="mb-4 flex gap-2">
+      <div data-tour="tasks-filters" className="mb-4 flex gap-2">
         {([["todo", "À faire"], ["mine", "Mes tâches"], ["done", "Terminées"]] as const).map(([k, l]) => (
           <button key={k} onClick={() => setFilter(k)} className={cx("rounded px-3 py-1.5 text-sm font-medium", filter === k ? "bg-brand-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200")}>{l}</button>
         ))}
       </div>
-      <Card>
+      <Card tour="tasks-list">
         {list.isLoading ? <Loading /> : !rows.length ? <Empty>Rien à faire ici </Empty> : (
           <ul className="divide-y divide-slate-100">
             {rows.map((t) => (

@@ -123,7 +123,7 @@ export default function ProjectDetail() {
         </div>} />
       <ErrorMsg error={checkNow.error} />
       <div className="mb-6 grid gap-4 sm:grid-cols-4">
-        <Card><p className="text-xs text-slate-400">Statut</p><div className="mt-1"><StatusDot status={p.status} /></div></Card>
+        <Card tour="project-status"><p className="text-xs text-slate-400">Statut</p><div className="mt-1"><StatusDot status={p.status} /></div></Card>
         <Card><p className="text-xs text-slate-400">Site</p><a href={p.url} target="_blank" rel="noreferrer noopener" className="mt-1 block truncate text-sm font-medium text-brand-600">{p.url}</a></Card>
         <Card><p className="text-xs text-slate-400">Certificat SSL</p><p className="mt-1 text-sm font-medium">{sslDays == null ? "—" : sslDays < 0 ? "Expiré" : `${sslDays} jours (${fmtDate(p.ssl_expires_at)})`}</p></Card>
         <Card><p className="text-xs text-slate-400">Dernier contrôle</p><p className="mt-1 text-sm font-medium">{fmtDateTime(p.last_checked_at)}{p.last_latency_ms != null && ` · ${p.last_latency_ms} ms`}</p></Card>
