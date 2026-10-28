@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Row, api } from "../api";
 import { FormModal, defaults } from "../components";
 import { CsvImportButton } from "../csvimport";
-import { Badge, Button, Card, Empty, ErrorMsg, Loading, PageHeader, cx, fmtDate, fmtDateTime, fmtMoney } from "../ui";
+import { Badge, Button, Card, Empty, ErrorMsg, Loading, PageHeader, cx, fmtDate, fmtDateTime, fmtMoney, TableWrap } from "../ui";
 
 interface Forecast { balance: number; lowest: number; end_balance: number; series: { date: string; balance: number }[]; events: { date: string; label: string; amount: number; type: string }[] }
 const accountFields = [{ name: "name", label: "Nom du compte", required: true }, { name: "initial_balance", label: "Solde initial (€)", type: "number" as const, hint: "Le solde du compte à la date de départ de votre saisie" }, { name: "iban", label: "IBAN" }];
@@ -51,7 +51,7 @@ export default function Treasury() {
   const f = fc.data;
   return (
     <>
-      <PageHeader title="Trésorerie" subtitle="Solde actuel et prévision : factures à encaisser, impôts et abonnements à venir." action={<div className="flex gap-2">{qonto.data?.configured && <Button variant="soft" busy={sync.isPending} onClick={() => sync.mutate()}>Synchroniser Qonto</Button>}<Button variant="ghost" onClick={() => setModal("account")}>+ Compte</Button><Button disabled={!accs.length} onClick={() => setModal("tx")}>+ Mouvement</Button></div>} />
+      <PageHeader title="Trésorerie" subtitle="Solde actuel et prévision : factures à encaisser, impôts et abonnements à venir." action={<div className="flex flex-wrap gap-2">{qonto.data?.configured && <Button variant="soft" busy={sync.isPending} onClick={() => sync.mutate()}>Synchroniser Qonto</Button>}<Button variant="ghost" onClick={() => setModal("account")}>+ Compte</Button><Button disabled={!accs.length} onClick={() => setModal("tx")}>+ Mouvement</Button></div>} />
       {qonto.data && (
         <p className="mb-4 text-sm text-slate-600">
           {qonto.data.configured
@@ -78,15 +78,15 @@ export default function Treasury() {
           </Card>
         </div>
       )}
-      <Card title="Mouvements bancaires" action={<div className="flex items-center gap-2">
+      <Card title="Mouvements bancaires" action={<div className="flex flex-wrap items-center gap-2">
         <select className="!w-auto" value={acc} onChange={(e) => setAcc(e.target.value ? Number(e.target.value) : "")}><option value="">Tous les comptes</option>{accs.map((a) => <option key={a.id} value={a.id}>{a.name}{a.provider === "qonto" ? " (synchronisé)" : ""}</option>)}</select>
         {acc !== "" && <CsvImportButton endpoint="/transactions/import" extra={{ account_id: acc }} label="Importer un relevé" hint="Export CSV de votre banque : colonnes Date (JJ/MM/AAAA), Libellé, Montant (ou Débit / Crédit). Les doublons sont ignorés." />}
         {acc !== "" && <Button variant="danger" onClick={() => confirm("Supprimer ce compte et ses mouvements ?") && delAcc.mutate(Number(acc))}>Supprimer le compte</Button>}</div>}>
         <ErrorMsg error={delTx.error ?? delAcc.error} />
         {!accs.length ? <Empty>Commencez par ajouter un compte bancaire (avec son solde actuel).</Empty> : !txs.data?.length ? <Empty>Aucun mouvement. Ajoutez-en un ou importez le CSV de votre banque.</Empty> : (
-          <table className="w-full text-sm"><tbody className="divide-y divide-slate-100">
+          <TableWrap><table className="w-full min-w-[480px] text-sm"><tbody className="divide-y divide-slate-100">
             {txs.data.map((t) => <tr key={t.id}><td className="py-2 pr-3 text-slate-400">{fmtDate(t.tx_date)}</td><td className="pr-3">{t.label} {t.category && <Badge>{t.category}</Badge>}</td><td className={cx("text-right font-medium", t.amount < 0 ? "text-red-600" : "text-emerald-800")}>{fmtMoney(t.amount)}</td><td className="w-8 text-right"><button className="text-xs text-red-500" onClick={() => delTx.mutate(t.id)}>✕</button></td></tr>)}
-          </tbody></table>
+          </tbody></table></TableWrap>
         )}
       </Card>
       {modal === "account" && <FormModal title="Nouveau compte" fields={accountFields} initial={defaults(accountFields, { initial_balance: 0 })} onClose={() => setModal(null)} onSubmit={(b) => saveAcc.mutate(b)} busy={saveAcc.isPending} error={saveAcc.error} />}

@@ -51,7 +51,7 @@ function ChannelModal({ channel, onClose }: { channel?: Channel; onClose: () => 
         </Field>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> Canal actif</label>
         <ErrorMsg error={save.error} />
-        <div className="flex justify-end gap-2"><Button type="button" variant="ghost" onClick={onClose}>Annuler</Button><Button type="submit" busy={save.isPending}>Enregistrer</Button></div>
+        <div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="ghost" onClick={onClose}>Annuler</Button><Button type="submit" busy={save.isPending}>Enregistrer</Button></div>
       </form>
     </Modal>
   );
@@ -105,7 +105,7 @@ export default function Alerts({ user }: { user: User }) {
     <>
       <PageHeader title="Alertes & sécurité" subtitle="Sites en panne, attaques, certificats, failles critiques et échéances." />
       <div className="space-y-6">
-        <Card title="Alertes" action={<div className="flex items-center gap-3">
+        <Card title="Alertes" action={<div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-xs text-slate-500"><input type="checkbox" checked={onlyOpen} onChange={(e) => setOnlyOpen(e.target.checked)} /> Seulement les non traitées</label>
           <Button variant="ghost" onClick={() => ackAll.mutate()}>Tout marquer comme lu</Button></div>}>
           {alerts.isLoading ? <Loading /> : !alerts.data?.length ? <Empty>Aucune alerte </Empty> : (

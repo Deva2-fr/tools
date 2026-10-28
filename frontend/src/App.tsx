@@ -81,6 +81,15 @@ function SearchPalette({ user, onClose }: { user: User; onClose: () => void }) {
 function Shell() {
   const qc = useQueryClient();
   const [searching, setSearching] = useState(false);
+  const [menu, setMenu] = useState(false); // tiroir de navigation (mobile / tablette)
+  const { pathname } = useLocation();
+  useEffect(() => setMenu(false), [pathname]);
+  useEffect(() => {
+    if (!menu) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenu(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menu]);
   const me = useQuery({ queryKey: ["me"], queryFn: () => api<User>("/auth/me"), retry: false });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setSearching((s) => !s); } };
@@ -96,13 +105,23 @@ function Shell() {
   const logout = async () => { await api("/auth/logout", "POST"); qc.clear(); window.location.href = "/"; };
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col overflow-y-auto bg-[#1d2421] text-stone-300">
-        <div className="px-5 pb-4 pt-6">
-          <p className="font-serif text-xl font-semibold tracking-tight text-stone-50">Deva2</p>
-          <p className="text-xs text-stone-500">Gestion & outils internes</p>
+    <div className="min-h-screen lg:flex">
+      {/* Barre du haut : mobile et tablette */}
+      <header className="sticky top-0 z-30 flex h-14 items-center gap-3 bg-[#1d2421] px-4 text-stone-200 lg:hidden">
+        <button onClick={() => setMenu(true)} className="-ml-1 rounded p-1.5 text-xl leading-none hover:bg-white/10" aria-label="Ouvrir le menu">☰</button>
+        <Link to="/" className="font-serif text-lg font-semibold tracking-tight text-stone-50">Deva2</Link>
+        <button onClick={() => setSearching(true)} className="ml-auto rounded border border-stone-700 px-3 py-1 text-sm text-stone-400" aria-label="Rechercher">Rechercher…</button>
+      </header>
+      {menu && <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setMenu(false)} />}
+      <aside className={cx("fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col overflow-y-auto bg-[#1d2421] text-stone-300 transition-transform lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:w-60 lg:translate-x-0 lg:shrink-0 lg:transition-none", menu ? "translate-x-0" : "-translate-x-full")}>
+        <div className="flex items-start justify-between px-5 pb-4 pt-6">
+          <div>
+            <p className="font-serif text-xl font-semibold tracking-tight text-stone-50">Deva2</p>
+            <p className="text-xs text-stone-500">Gestion & outils internes</p>
+          </div>
+          <button onClick={() => setMenu(false)} className="text-stone-400 hover:text-white lg:hidden" aria-label="Fermer le menu">✕</button>
         </div>
-        <button onClick={() => setSearching(true)} className="mx-3 mb-3 flex items-center justify-between rounded border border-stone-700 px-3 py-1.5 text-sm text-stone-400 hover:border-stone-500">
+        <button onClick={() => setSearching(true)} className="mx-3 mb-3 hidden items-center justify-between rounded border border-stone-700 px-3 py-1.5 text-sm text-stone-400 hover:border-stone-500 lg:flex">
           <span>Rechercher…</span><kbd className="rounded bg-stone-800 px-1.5 text-xs text-stone-400">⌘K</kbd>
         </button>
         <nav className="flex-1 space-y-5 px-3 pb-4">
@@ -112,7 +131,7 @@ function Shell() {
               <div key={i}>
                 {sec.title && <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-stone-500">{sec.title}</p>}
                 <div className="space-y-0.5">{items.map((n) => (
-                  <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => cx("block border-l-2 px-3 py-1.5 text-sm transition", isActive ? "border-emerald-400 bg-white/5 font-medium text-white" : "border-transparent text-stone-400 hover:text-stone-100")}>{n.label}</NavLink>))}</div>
+                  <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => cx("block border-l-2 px-3 py-2 text-sm transition lg:py-1.5", isActive ? "border-emerald-400 bg-white/5 font-medium text-white" : "border-transparent text-stone-400 hover:text-stone-100")}>{n.label}</NavLink>))}</div>
               </div>) : null;
           })}
         </nav>
@@ -122,7 +141,7 @@ function Shell() {
           <button onClick={logout} className="mt-2 text-xs font-medium text-stone-400 hover:text-white">Se déconnecter</button>
         </div>
       </aside>
-      <main className="min-w-0 flex-1 px-10 py-8">
+      <main className="min-w-0 flex-1 px-4 py-5 sm:px-6 lg:px-10 lg:py-8">
         <div className="mx-auto max-w-6xl">
           <Routes>
             <Route path="/" element={<Dashboard user={user} />} />

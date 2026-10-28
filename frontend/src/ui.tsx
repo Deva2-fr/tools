@@ -26,24 +26,24 @@ export function Card({ title, action, children, className }: { title?: ReactNode
   return (
     <section className={cx("rounded-md border border-slate-200 bg-white", className)}>
       {(title || action) && (
-        <header className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
+        <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-slate-200 px-4 py-3 sm:px-5">
           <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{title}</h2>
           {action}
         </header>
       )}
-      <div className="p-5">{children}</div>
+      <div className="p-4 sm:p-5">{children}</div>
     </section>
   );
 }
 
 export function PageHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: ReactNode }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-3 border-b border-slate-300 pb-4">
-      <div>
-        <h1 className="font-serif text-[28px] font-semibold leading-tight text-slate-900">{title}</h1>
+    <div className="mb-5 flex flex-wrap items-end justify-between gap-3 border-b border-slate-300 pb-4 sm:mb-6">
+      <div className="min-w-0">
+        <h1 className="break-words font-serif text-2xl font-semibold leading-tight text-slate-900 sm:text-[28px]">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-slate-500">{subtitle}</p>}
       </div>
-      {action}
+      {action && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{action}</div>}
     </div>
   );
 }
@@ -87,16 +87,21 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 pt-16" onMouseDown={onClose}>
-      <div className={cx("w-full rounded-md bg-white shadow-lg", wide ? "max-w-2xl" : "max-w-lg")} onMouseDown={(e) => e.stopPropagation()}>
-        <header className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-2 pt-4 sm:p-4 sm:pt-16" onMouseDown={onClose}>
+      <div className={cx("w-full min-w-0 rounded-md bg-white shadow-lg", wide ? "max-w-2xl" : "max-w-lg")} onMouseDown={(e) => e.stopPropagation()}>
+        <header className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3.5 sm:px-5">
           <h3 className="font-serif text-lg font-semibold text-slate-900">{title}</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-700" aria-label="Fermer">✕</button>
         </header>
-        <div className="p-5">{children}</div>
+        <div className="p-4 sm:p-5">{children}</div>
       </div>
     </div>
   );
+}
+
+/** Tableau défilable horizontalement sur petit écran (la page, elle, ne déborde jamais). */
+export function TableWrap({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={cx("-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0", className)}>{children}</div>;
 }
 
 export function Empty({ children }: { children: ReactNode }) {

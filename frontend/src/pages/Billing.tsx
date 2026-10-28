@@ -39,7 +39,7 @@ export default function Billing() {
   return (
     <>
       <PageHeader title="Devis & factures" subtitle={viaQonto ? "Vos devis et factures Qonto, importés automatiquement : CA, encaissements, retards et relances." : "Créez, émettez et suivez vos devis et factures. Numérotation continue automatique, PDF prêt à envoyer."}
-        action={<div className="flex gap-2">
+        action={<div className="flex flex-wrap gap-2">
           <Button variant="ghost" onClick={() => downloadFile("/billing/export/csv", "devis-factures.csv")}>Export comptable (CSV)</Button>
           <Button variant="soft" onClick={() => nav("/facturation/nouveau?kind=quote")}>+ Devis</Button>
           {viaQonto ? <Button busy={sync.isPending} onClick={() => sync.mutate()}>Synchroniser Qonto</Button>
@@ -55,12 +55,12 @@ export default function Billing() {
       )}
       <div className="mb-4"><ErrorMsg error={sync.error} /></div>
       {s && (
-        <div className="mb-6 grid gap-px overflow-hidden rounded-md border border-slate-300 bg-slate-300 lg:grid-cols-[1fr_1fr_1fr_1fr_1.5fr]">
+        <div className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-300 bg-slate-300 lg:grid-cols-[1fr_1fr_1fr_1fr_1.5fr]">
           {([["Facturé " + s.year + " (HT)", fmtMoney(s.invoiced_ht), ""], ["Encaissé " + s.year, fmtMoney(s.collected), "text-emerald-800"], ["Reste à encaisser", fmtMoney(s.outstanding), s.outstanding ? "text-amber-700" : ""],
             [`En retard (${s.overdue_count})`, fmtMoney(s.overdue), s.overdue ? "text-red-700" : ""]] as const).map(([l, v, tone]) => (
             <div key={l} className="bg-white p-4"><p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{l}</p><p className={cx("mt-2 font-serif text-2xl", tone)}>{v}</p></div>
           ))}
-          <div className="bg-white p-4"><p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">CA mensuel HT · {s.open_quotes_count} devis en attente ({fmtMoney(s.open_quotes_amount)})</p><Bars values={s.monthly_ht} /></div>
+          <div className="col-span-2 bg-white p-4 lg:col-span-1"><p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">CA mensuel HT · {s.open_quotes_count} devis en attente ({fmtMoney(s.open_quotes_amount)})</p><Bars values={s.monthly_ht} /></div>
         </div>
       )}
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -71,7 +71,7 @@ export default function Billing() {
       </div>
       <Card>
         {list.isLoading ? <Loading /> : !list.data?.length ? <Empty>Aucun document.</Empty> : (
-          <div className="overflow-x-auto"><table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
             <thead><tr className="border-b border-slate-100 text-left text-xs uppercase text-slate-400"><th className="py-2">Numéro</th><th>Type</th><th>Client</th><th>Date</th><th>Échéance</th><th className="text-right">Total TTC</th><th className="text-right">Reste</th><th className="pl-4">Statut</th></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {list.data.map((d) => (

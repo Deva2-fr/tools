@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Row, User, api, isManager } from "../api";
 import { useRefOptions } from "../components";
-import { Badge, Button, Card, Empty, ErrorMsg, Field, Loading, PageHeader, cx, fmtDate, fmtMoney } from "../ui";
+import { Badge, Button, Card, Empty, ErrorMsg, Field, Loading, PageHeader, cx, fmtDate, fmtMoney, TableWrap } from "../ui";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const monthStart = () => today().slice(0, 8) + "01";
@@ -12,9 +12,9 @@ function Report() {
   const [end, setEnd] = useState(today());
   const { data } = useQuery({ queryKey: ["time-report", start, end], queryFn: () => api<{ rows: Row[]; total_hours: number }>(`/time/report?start=${start}&end=${end}`) });
   return (
-    <Card title="Rentabilité par client" action={<div className="flex items-center gap-2"><input type="date" className="!w-auto" value={start} onChange={(e) => setStart(e.target.value)} /><span>→</span><input type="date" className="!w-auto" value={end} onChange={(e) => setEnd(e.target.value)} /></div>}>
+    <Card title="Rentabilité par client" action={<div className="flex flex-wrap items-center gap-2"><input type="date" className="!w-auto" value={start} onChange={(e) => setStart(e.target.value)} /><span>→</span><input type="date" className="!w-auto" value={end} onChange={(e) => setEnd(e.target.value)} /></div>}>
       {!data ? <Loading /> : !data.rows.length ? <Empty>Aucune donnée sur la période.</Empty> : (
-        <div className="overflow-x-auto"><table className="w-full text-sm">
+        <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-sm">
           <thead><tr className="border-b text-left text-xs uppercase text-slate-400"><th className="py-2">Client</th><th className="text-right">Heures</th><th className="text-right">Dont facturables</th><th className="text-right">Facturé HT</th><th className="text-right">Coût du temps</th><th className="text-right">Marge</th></tr></thead>
           <tbody className="divide-y divide-slate-100">{data.rows.map((r) => (
             <tr key={String(r.company_id)}><td className="py-2.5 font-medium">{r.company}</td><td className="text-right">{r.hours}</td><td className="text-right">{r.billable_hours}</td><td className="text-right">{fmtMoney(r.invoiced_ht)}</td><td className="text-right">{fmtMoney(r.cost)}</td>
@@ -57,9 +57,9 @@ export default function Time({ user }: { user: User }) {
           </Card>
           <Card title={`Ce mois-ci : ${total} h`}>
             {list.isLoading ? <Loading /> : !list.data?.length ? <Empty>Aucune saisie ce mois-ci.</Empty> : (
-              <table className="w-full text-sm"><tbody className="divide-y divide-slate-100">
+              <TableWrap><table className="w-full min-w-[480px] text-sm"><tbody className="divide-y divide-slate-100">
                 {list.data.map((r) => <tr key={r.id}><td className="py-2 pr-3 text-slate-400">{fmtDate(r.work_date)}</td>{isManager(user) && <td className="pr-3 text-xs text-slate-400">{r.user_email}</td>}<td className="pr-3 font-medium">{names[r.company_id] ?? "Interne"}</td><td className="pr-3">{r.description}</td><td className="pr-3">{!r.billable && <Badge>Non facturable</Badge>}</td><td className="text-right font-bold">{r.hours} h</td><td className="w-8 text-right"><button className="text-xs text-red-500" onClick={() => del.mutate(r.id)}>✕</button></td></tr>)}
-              </tbody></table>
+              </tbody></table></TableWrap>
             )}
           </Card>
         </>

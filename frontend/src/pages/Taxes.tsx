@@ -27,7 +27,7 @@ function TaxModal({ tax, onClose }: { tax?: Tax; onClose: () => void }) {
         <Field label="Me prévenir (jours avant)" hint="Séparés par des virgules. Ex : 30,7,1"><input value={f.reminder_days} onChange={(e) => setF({ ...f, reminder_days: e.target.value })} /></Field>
         <Field label="Notes"><textarea rows={2} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></Field>
         <ErrorMsg error={save.error} />
-        <div className="flex justify-end gap-2"><Button type="button" variant="ghost" onClick={onClose}>Annuler</Button><Button type="submit" busy={save.isPending}>Enregistrer</Button></div>
+        <div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="ghost" onClick={onClose}>Annuler</Button><Button type="submit" busy={save.isPending}>Enregistrer</Button></div>
       </form>
     </Modal>
   );
@@ -142,7 +142,7 @@ export default function Taxes() {
   return (
     <>
       <PageHeader title="Impôts, TVA & déclarations" subtitle="Ne ratez plus une échéance : le Hub vous prévient avant chaque date limite."
-        action={<div className="flex gap-2">
+        action={<div className="flex flex-wrap gap-2">
           <a href="/api/taxes/calendar.ics"><Button variant="ghost" type="button"> Exporter vers mon agenda</Button></a>
           <Button onClick={() => setEdit("new")}>+ Échéance</Button></div>} />
       {msg && <p className="mb-4 rounded bg-brand-50 px-3 py-2 text-sm text-brand-700">{msg}</p>}
@@ -170,7 +170,7 @@ export default function Taxes() {
         {isLoading ? <Loading /> : rows.length === 0 ? (
           <div className="space-y-3 text-center">
             <Empty>Aucune échéance à venir.</Empty>
-            <div className="flex justify-center gap-2">
+            <div className="flex flex-wrap justify-center gap-2">
               <Button variant="soft" busy={gen.isPending} onClick={() => gen.mutate(year)}>Pré-remplir {year} (TVA, déclaration, CFE)</Button>
               <Button variant="soft" busy={gen.isPending} onClick={() => gen.mutate(year + 1)}>Pré-remplir {year + 1}</Button>
             </div>
