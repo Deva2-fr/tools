@@ -2,13 +2,13 @@ from datetime import date
 from urllib.parse import quote
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import extract, select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import get_settings, public_base_url
 from app.core.db import get_db, utcnow
 from app.core.security import admin_user, manager_user
 from app.models import BillingDoc, Company, Payment, User
@@ -104,45 +104,46 @@ def summary(db: Session = Depends(get_db)):
 
 
 @router.get("/qonto")
-def qonto_status(db: Session = Depends(get_db)):
+def qonto_status(request: Request, db: Session = Depends(get_db)):
     return {
         "configured": qonto.is_configured(db),
         "last_synced_at": integrations.get(db, "qonto_billing_synced_at") or None,
         # Connexion OAuth (devis) et assistant IA
         "oauth_configured": qonto_oauth.is_configured(db),
         "oauth_connected": qonto_oauth.is_connected(db),
-        "redirect_uri": qonto_oauth.redirect_uri(),
+        "redirect_uri": qonto_oauth.redirect_uri(request),
         "ai_configured": quote_ai.is_configured(db),
     }
 
 
 @router.get("/qonto/connect")
-def qonto_connect(admin: User = Depends(admin_user), db: Session = Depends(get_db)):
+def qonto_connect(request: Request, admin: User = Depends(admin_user), db: Session = Depends(get_db)):
     state = jwt.encode(
         {"uid": admin.id, "exp": utcnow().timestamp() + 600}, get_settings().secret_key, algorithm="HS256"
     )
     try:
-        return {"url": qonto_oauth.authorize_url(db, state)}
+        return {"url": qonto_oauth.authorize_url(db, state, request)}
     except qonto_oauth.QontoOAuthError as exc:
         raise HTTPException(400, str(exc)) from exc
 
 
 @router.get("/qonto/oauth/callback")
 def qonto_callback(
+    request: Request,
     code: str = "",
     state: str = "",
     error: str = "",
     db: Session = Depends(get_db),
     user: User = Depends(admin_user),
 ):
-    base = get_settings().base_url.rstrip("/")
+    base = public_base_url(request)
     try:
         data = jwt.decode(state, get_settings().secret_key, algorithms=["HS256"])
         if data["uid"] != user.id:
             raise ValueError("utilisateur différent")
         if error or not code:
             raise ValueError(error or "code manquant")
-        qonto_oauth.exchange_code(db, code)
+        qonto_oauth.exchange_code(db, code, request)
     except Exception as exc:
         return RedirectResponse(f"{base}/parametres?qonto_error={quote(str(exc)[:150])}")
     audit(db, user.email, "qonto_oauth_connected", "")

@@ -20,7 +20,7 @@ Ouvrez `.env` et remplissez uniquement ces 4 lignes :
 | Ligne | Quoi mettre | Exemple |
 |---|---|---|
 | `DOMAIN` | Le nom de domaine du Hub (à faire pointer vers votre serveur chez votre registrar : enregistrement **A** vers l'IP du serveur) | `hub.deva2.fr` |
-| `BASE_URL` | Pareil avec `https://` devant | `https://hub.deva2.fr` |
+| `BASE_URL` | Pareil avec `https://` devant. Sert aux adresses de retour OAuth (Qonto, Microsoft) : s'il est resté sur `localhost`, le Hub prend le domaine par lequel vous l'ouvrez. L'adresse exacte à déclarer est affichée dans Paramètres | `https://hub.deva2.fr` |
 | `ADMIN_EMAIL` | Votre e-mail (votre identifiant) | `vous@deva2.fr` |
 | `ADMIN_PASSWORD` | Votre mot de passe (12 caractères minimum). Vous pourrez le changer ensuite | … |
 
