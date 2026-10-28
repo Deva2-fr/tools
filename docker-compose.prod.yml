@@ -1,0 +1,101 @@
+# Deva2 Hub – PRODUCTION (déployé par GitHub Actions, voir docs/DEPLOIEMENT.md).
+# Fichier autonome copié sur le serveur à côté d'un .env : il utilise les images publiées sur GHCR
+# (et non « build: »). Les ports 80/443 sont déjà pris sur ce serveur : le Hub n'est publié que sur
+# 127.0.0.1:${HUB_PORT} et c'est le reverse proxy existant qui le relaie en HTTPS.
+name: deva2-hub
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-backend: &backend
+  image: ghcr.io/deva2-fr/tools/backend:${IMAGE_TAG:-latest}
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+psycopg://hub:${POSTGRES_PASSWORD}@db:5432/hub
+    DATA_DIR: /data
+  volumes:
+    - hub_data:/data
+  networks: [db_net, web]
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging: *logging
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hub
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant dans .env}
+      POSTGRES_DB: hub
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [db_net] # réseau isolé : pas d'accès Internet, aucun port publié
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hub -d hub"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+  api:
+    <<: *backend
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    <<: *backend
+    command: ["python", "-m", "app.worker"]
+    healthcheck:
+      disable: true
+    depends_on: # l'API applique les migrations Alembic au démarrage : le worker attend qu'elle soit saine
+      db:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  frontend:
+    image: ghcr.io/deva2-fr/tools/frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    networks: [web]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      # Port interne « aléatoire », lié à la machine locale : seul le reverse proxy existant y accède.
+      - "${HUB_BIND:-127.0.0.1}:${HUB_PORT:-31847}:80"
+    volumes:
+      - ./caddy/Caddyfile.proxy:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [web]
+    depends_on: [api, frontend]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+networks:
+  db_net:
+    internal: true # la base de données est injoignable depuis Internet
+  web: # api/worker doivent sortir sur Internet (monitoring, Microsoft, Google, NVD)
+
+volumes:
+  pgdata:
+  hub_data:
+  caddy_data:
+  caddy_config:

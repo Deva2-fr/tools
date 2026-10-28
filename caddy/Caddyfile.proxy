@@ -1,0 +1,33 @@
+# Mode « derrière un reverse proxy existant » (production sur le serveur d'ice-theaters).
+# Le proxy déjà en place gère le HTTPS et les ports 80/443 ; Caddy ne parle qu'en HTTP, en interne.
+# Le conteneur n'est publié que sur 127.0.0.1:${HUB_PORT} (voir docker-compose.prod.yml).
+{
+	auto_https off
+	servers {
+		# Le reverse proxy existant (réseau privé / localhost) est de confiance : ses en-têtes
+		# X-Forwarded-For / X-Forwarded-Proto sont conservés (vraie IP du client pour le limiteur de connexions).
+		trusted_proxies static private_ranges
+	}
+}
+
+:80 {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
+
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		reverse_proxy frontend:8080
+	}
+}

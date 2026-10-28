@@ -1,0 +1,8 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body { @apply bg-[#f4f2ec] text-slate-800 antialiased; font-feature-settings: "tnum" 1; }
+input, select, textarea { @apply w-full rounded border border-slate-300 bg-white px-2.5 py-1.5 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600; }
+input[type="checkbox"] { @apply h-4 w-4 w-auto rounded-sm accent-[#1f5f4f]; }
+table th { @apply font-medium; }
