@@ -10,9 +10,11 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME_LOWER: deva2-fr/tools
 
+# Sur une PR, un nouveau commit annule l'ancienne vérification. Sur main, on n'annule JAMAIS un
+# déploiement en cours (il pourrait être coupé en plein redémarrage) : les déploiements s'enchaînent.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Lint, tests et build : la construction des images (donc le déploiement) n'a lieu que si tout est vert.
