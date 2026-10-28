@@ -60,6 +60,29 @@ FIELDS: list[Field] = [
         "Deva2 > Administration > Comptabilité > Note de frais : la fin de l'URL du dossier, après /folders/",
     ),
     Field("qonto_billing_synced_at", "", "qonto", internal=True),
+    # Ma société : imprimé sur les devis, factures et notes de frais.
+    Field("company_name", "Raison sociale", "company", "Ex : DEVA2"),
+    Field("company_legal_form", "Forme juridique et capital", "company", "Ex : SAS au capital de 1 000 €"),
+    Field("company_siret", "SIRET", "company", "14 chiffres"),
+    Field("company_vat", "N° de TVA intracommunautaire", "company", "Ex : FR12345678901"),
+    Field("company_address", "Adresse", "company", "Rue, code postal, ville", multiline=True),
+    Field("company_email", "E-mail", "company", "Affiché sur les documents"),
+    Field("company_phone", "Téléphone", "company"),
+    Field("company_iban", "IBAN", "company", "Pour le paiement des factures"),
+    Field("company_bic", "BIC", "company"),
+    Field(
+        "invoice_terms_days", "Délai de paiement (jours)", "company", "Échéance par défaut des factures : 30"
+    ),
+    Field(
+        "invoice_legal_notes",
+        "Mentions légales complémentaires",
+        "company",
+        "Ex : « TVA non applicable, art. 293 B du CGI »",
+        multiline=True,
+    ),
+    # Signataires des notes de frais (id d'utilisateur), réglés dans Paramètres > Intégrations.
+    Field("expense_president_user_id", "", "company", internal=True),
+    Field("expense_partner_user_id", "", "company", internal=True),
     Field(
         "qonto_login",
         "Qonto – Identifiant",

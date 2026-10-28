@@ -80,7 +80,7 @@ Uniquement si votre messagerie est un vrai Microsoft 365 (Exchange Online), qui 
 
 ## 4. Google Drive (notes de frais en PDF)
 
-Le Hub génère lui-même le PDF de la note de frais (aucun modèle à créer). Chaque note est rattachée à un **utilisateur du Hub** (un membre ne saisit et ne voit que les siennes ; un manager peut saisir pour n'importe qui). On peut y choisir une **signature**, dessinée à la souris ou au doigt (bouton **+ Nouvelle**) ou importée en image : chaque utilisateur a ses propres signatures, réutilisables. Le **justificatif** (ticket, facture : PDF, JPG ou PNG, 10 Mo max.) est ajouté à la fin du PDF : un seul fichier contient la note signée et sa preuve. À chaque **Enregistrer**, le PDF est téléchargé sur votre poste **et** déposé dans Google Drive, dans **Deva2 › Administration › Comptabilité › Note de frais**. Si vous modifiez une note, le même fichier Drive est remplacé (pas de doublon).
+Le Hub génère lui-même le PDF de la note de frais (aucun modèle à créer). Chaque note est rattachée à un **utilisateur du Hub** (un membre ne saisit et ne voit que les siennes ; un manager peut saisir pour n'importe qui). La note porte **trois signatures** : le **demandeur**, le **président** et l'**associé**. Désignez une fois pour toutes le président et l'associé dans **Paramètres → Intégrations → Signataires des notes de frais** : ils voient alors toutes les notes et y apposent leur propre signature (un manager peut aussi les apposer). Une signature se dessine à la souris ou au doigt (bouton **+ Nouvelle**) ou s'importe en image ; chacun a ses propres signatures, réutilisables, et peut les supprimer (bouton « Supprimer » sous la signature, ou depuis son **profil**). Jusqu'à **10 justificatifs** (tickets, factures : PDF, JPG ou PNG, 10 Mo max. chacun) sont ajoutés à la fin du PDF : un seul fichier contient la note signée et ses preuves. À chaque **Enregistrer**, le PDF est téléchargé sur votre poste **et** déposé dans Google Drive, dans **Deva2 › Administration › Comptabilité › Note de frais**. Si vous modifiez une note, le même fichier Drive est remplacé (pas de doublon).
 
 ### a) Créer le « robot » Google (une seule fois)
 1. <https://console.cloud.google.com> → créez un projet `deva2-hub`.
@@ -141,7 +141,7 @@ La recherche se fait par mot-clé : vérifiez toujours que votre version est con
 
 ## 8. Ma société (pour les devis et factures)
 
-**Paramètres → Intégrations → Ma société** : raison sociale, forme juridique et capital, SIRET, n° de TVA intracommunautaire, adresse, e-mail, téléphone, IBAN/BIC, délai de paiement par défaut (30 jours) et mentions légales éventuelles (ex. « TVA non applicable, art. 293 B du CGI » si vous êtes en franchise). Ces informations sont imprimées sur chaque PDF : **complétez-les avant d'émettre votre première facture.**
+**Paramètres → Intégrations → Ma société** (aussi imprimé sur les notes de frais) : raison sociale, forme juridique et capital, SIRET, n° de TVA intracommunautaire, adresse, e-mail, téléphone, IBAN/BIC, délai de paiement par défaut (30 jours) et mentions légales éventuelles (ex. « TVA non applicable, art. 293 B du CGI » si vous êtes en franchise). Ces informations sont imprimées sur chaque PDF : **complétez-les avant d'émettre votre première facture.**
 
 Le PDF contient déjà les mentions obligatoires usuelles (pénalités de retard, indemnité forfaitaire de 40 €). Faites valider le modèle par votre expert-comptable.
 
@@ -157,6 +157,8 @@ Le PDF contient déjà les mentions obligatoires usuelles (pénalités de retard
 5. Impayé : le Hub alerte à J-3 de l'échéance, puis à J+1, J+7, J+15, J+30… sur vos canaux d'alerte.
 
 ## 9. Utilisateurs et rôles
+
+Chaque utilisateur a un **profil** (clic sur son nom en bas du menu, ou dans Paramètres → Utilisateurs) : nombre et total de ses notes de frais (et celles sans justificatif), abonnements dont il est responsable et leur coût annuel, signatures, tâches ouvertes, opportunités et temps saisi ce mois-ci. Un membre ne voit que son profil ; un manager voit ceux de toute l'équipe.
 
 **Paramètres → Utilisateurs → + Utilisateur.** *Membre* : CRM, tâches, saisie de son temps, notes de frais. *Manager* : en plus, devis/factures, trésorerie, abonnements, équipe, documents, accès. *Administrateur* : en plus, réglages, intégrations et utilisateurs.
 Pour que le temps passé d'un membre soit valorisé, créez sa fiche dans **Équipe → Collaborateurs** avec **le même e-mail que son compte**.

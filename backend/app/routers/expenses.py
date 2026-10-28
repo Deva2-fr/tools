@@ -6,18 +6,26 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from PIL import Image, UnidentifiedImageError
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.db import get_db
-from app.core.security import current_user, is_manager
-from app.models import Expense, Signature, User
+from app.core.security import admin_user, current_user, is_manager
+from app.models import Expense, ExpenseReceipt, Signature, User
+from app.routers.auth import audit
 from app.schemas import ExpenseIn, ExpenseOut
 from app.services import expense_pdf, google_drive, integrations
 
 router = APIRouter(prefix="/expenses", tags=["notes de frais"])
+
+RECEIPT_MAX = 10 * 1024 * 1024
+MAX_RECEIPTS = 10
+RECEIPT_MAGIC = {".pdf": b"%PDF", ".png": b"\x89PNG", ".jpg": b"\xff\xd8\xff", ".jpeg": b"\xff\xd8\xff"}
+SIGNATURE_MAX = 2 * 1024 * 1024
+# Signataires fixes des notes de frais (réglés dans Paramètres) : clé d'intégration par rôle.
+SIGNER_KEYS = {"president": "expense_president_user_id", "partner": "expense_partner_user_id"}
 
 
 def compute_amounts(ttc: float, vat_rate: float) -> tuple[float, float]:
@@ -25,24 +33,32 @@ def compute_amounts(ttc: float, vat_rate: float) -> tuple[float, float]:
     return ht, round(ttc - ht, 2)
 
 
-RECEIPT_MAX = 10 * 1024 * 1024
-RECEIPT_MAGIC = {".pdf": b"%PDF", ".png": b"\x89PNG", ".jpg": b"\xff\xd8\xff", ".jpeg": b"\xff\xd8\xff"}
-SIGNATURE_MAX = 2 * 1024 * 1024
+def signer_ids(db: Session) -> dict[str, int | None]:
+    out: dict[str, int | None] = {}
+    for role, key in SIGNER_KEYS.items():
+        raw = integrations.get(db, key)
+        out[role] = int(raw) if raw.isdigit() else None
+    return out
+
+
+def _power(db: Session, user: User) -> bool:
+    """Accès à toutes les notes : managers, président et associé (qui signent les notes des autres)."""
+    return is_manager(user) or user.id in signer_ids(db).values()
 
 
 def _out(e: Expense) -> ExpenseOut:
     out = ExpenseOut.model_validate(e)
     out.has_pdf = bool(e.pdf_path) and Path(e.pdf_path).exists()
-    out.has_receipt = bool(e.receipt_path) and Path(e.receipt_path).exists()
+    out.receipt_files = [{"id": r.id, "name": r.name} for r in e.receipts]
     return out
 
 
 def _target_user(db: Session, user: User, user_id: int | None) -> User:
-    """Utilisateur concerné par la note : soi-même, ou n'importe quel utilisateur actif pour un manager."""
+    """Utilisateur concerné : soi-même, ou n'importe quel utilisateur actif pour un manager / signataire."""
     if not user_id or user_id == user.id:
         return user
     target = db.get(User, user_id)
-    if not is_manager(user):
+    if not _power(db, user):
         raise HTTPException(403, "Vous ne pouvez saisir une note de frais que pour vous-même.")
     if not target or not target.is_active:
         raise HTTPException(400, "Utilisateur introuvable.")
@@ -50,21 +66,36 @@ def _target_user(db: Session, user: User, user_id: int | None) -> User:
 
 
 def _signature_for(
-    db: Session, user: User, signature_id: int | None, owner: User | None = None
+    db: Session, user: User, signature_id: int | None, owner_id: int | None = None, label: str = ""
 ) -> Signature | None:
-    """Signature visible par `user` (la sienne, ou toutes pour un manager) et, si `owner` est donné,
-    appartenant à la personne concernée par la note."""
+    """Signature visible par `user` (la sienne, ou toutes pour un manager / signataire) et, si
+    `owner_id` est donné, appartenant à cette personne (le demandeur, le président, l'associé)."""
     if not signature_id:
         return None
     sig = db.get(Signature, signature_id)
-    if not sig or not (is_manager(user) or sig.user_id == user.id) or (owner and sig.user_id != owner.id):
-        raise HTTPException(400, "Signature introuvable pour cet utilisateur.")
+    if (
+        not sig
+        or not (_power(db, user) or sig.user_id == user.id)
+        or (owner_id is not None and sig.user_id != owner_id)
+    ):
+        raise HTTPException(
+            400, " ".join(x for x in ("Signature", label, "introuvable pour ce signataire.") if x)
+        )
     return sig
 
 
 def _apply(db: Session, user: User, e: Expense, body: ExpenseIn) -> None:
     target = _target_user(db, user, body.user_id)
-    _signature_for(db, user, body.signature_id, owner=target)
+    signers = signer_ids(db)
+    _signature_for(db, user, body.signature_id, target.id, "du demandeur")
+    for role, field in (("president", "president_signature_id"), ("partner", "partner_signature_id")):
+        sig_id = getattr(body, field)
+        if sig_id and getattr(e, field) != sig_id:  # une signature déjà posée reste valable
+            if signers[role] is None:
+                raise HTTPException(400, "Choisissez d'abord le président et l'associé dans Paramètres.")
+            _signature_for(
+                db, user, sig_id, signers[role], "du président" if role == "president" else "de l'associé"
+            )
     for k, v in body.model_dump().items():
         setattr(e, k, v)
     e.user_id, e.employee = target.id, (target.name or target.email)[:120]
@@ -73,7 +104,7 @@ def _apply(db: Session, user: User, e: Expense, body: ExpenseIn) -> None:
 
 def _get(db: Session, user: User, expense_id: int) -> Expense:
     e = db.get(Expense, expense_id)
-    if not e or not (is_manager(user) or e.user_id == user.id or e.created_by == user.email):
+    if not e or not (_power(db, user) or e.user_id == user.id or e.created_by == user.email):
         raise HTTPException(404)
     return e
 
@@ -88,34 +119,75 @@ def _pdf_dir() -> Path:
     return _dir()
 
 
-def _remove_receipt(e: Expense) -> None:
-    if e.receipt_path:
-        Path(e.receipt_path).unlink(missing_ok=True)
-    e.receipt_path, e.receipt_name = "", ""
-
-
 async def _read_receipt(file: UploadFile) -> tuple[bytes, str, str]:
     original = Path(file.filename or "justificatif").name
     ext = Path(original).suffix.lower()
     if ext not in RECEIPT_MAGIC:
-        raise HTTPException(400, "Justificatif : PDF, JPG ou PNG uniquement.")
+        raise HTTPException(400, f"Justificatif « {original} » : PDF, JPG ou PNG uniquement.")
     data = await file.read(RECEIPT_MAX + 1)
     if len(data) > RECEIPT_MAX:
-        raise HTTPException(413, "Justificatif trop volumineux (10 Mo maximum).")
+        raise HTTPException(413, f"Justificatif « {original} » trop volumineux (10 Mo maximum).")
     if not data.startswith(RECEIPT_MAGIC[ext]):
-        raise HTTPException(400, "Le contenu du justificatif ne correspond pas à son extension.")
+        raise HTTPException(400, f"Le contenu de « {original} » ne correspond pas à son extension.")
     return data, ext, original
 
 
+def _sig_png(db: Session, sig_id: int | None) -> tuple[bytes | None, str]:
+    sig = db.get(Signature, sig_id) if sig_id else None
+    if not sig or not Path(sig.image_path).exists():
+        return None, ""
+    owner = db.get(User, sig.user_id)
+    return Path(sig.image_path).read_bytes(), (owner.name or owner.email) if owner else ""
+
+
 def build_pdf(db: Session, e: Expense) -> bytes:
-    """Note de frais + signature choisie + justificatif en annexe, en un seul PDF."""
-    sig = db.get(Signature, e.signature_id) if e.signature_id else None
-    png = Path(sig.image_path).read_bytes() if sig and Path(sig.image_path).exists() else None
-    note = expense_pdf.render_pdf(e, integrations.company_info(db), png)
-    receipt = Path(e.receipt_path) if e.receipt_path else None
-    if not receipt or not receipt.exists():
-        return note
-    return expense_pdf.with_receipt(note, receipt.read_bytes(), receipt.suffix.lower())
+    """Note de frais + signatures (demandeur, président, associé) + justificatifs en annexe : un seul PDF."""
+    signers = signer_ids(db)
+    names = {
+        role: ((u.name or u.email) if (u := db.get(User, uid)) else "") if uid else ""
+        for role, uid in signers.items()
+    }
+    signatures = {}
+    for role, sig_id in (
+        ("requester", e.signature_id),
+        ("president", e.president_signature_id),
+        ("partner", e.partner_signature_id),
+    ):
+        png, owner = _sig_png(db, sig_id)
+        signatures[role] = (png, owner or (e.employee if role == "requester" else names.get(role, "")))
+    receipts = [(r.name, Path(r.path).read_bytes()) for r in e.receipts if Path(r.path).exists()]
+    note = expense_pdf.render_pdf(e, integrations.company_info(db), signatures, [n for n, _ in receipts])
+    return expense_pdf.with_receipts(note, receipts)
+
+
+# ---------- Signataires (président, associé) ----------
+class SignersIn(BaseModel):
+    president: int | None = None
+    partner: int | None = None
+
+
+def _signers_out(db: Session) -> dict:
+    out = {}
+    for role, uid in signer_ids(db).items():
+        u = db.get(User, uid) if uid else None
+        out[role] = {"id": u.id, "name": u.name or u.email} if u else None
+    return out
+
+
+@router.get("/signers")
+def get_signers(db: Session = Depends(get_db), _: User = Depends(current_user)):
+    return _signers_out(db)
+
+
+@router.put("/signers")
+def set_signers(body: SignersIn, db: Session = Depends(get_db), admin: User = Depends(admin_user)):
+    for role, key in SIGNER_KEYS.items():
+        uid = getattr(body, role)
+        if uid and not (db.get(User, uid) and db.get(User, uid).is_active):
+            raise HTTPException(400, "Utilisateur introuvable.")
+        integrations.put(db, key, str(uid) if uid else "")
+    audit(db, admin.email, "expense_signers_updated", str(body.model_dump()))
+    return _signers_out(db)
 
 
 # ---------- Signatures ----------
@@ -127,9 +199,10 @@ def _sig_out(sig: Signature) -> dict:
 def list_signatures(
     user_id: int | None = None, db: Session = Depends(get_db), user: User = Depends(current_user)
 ):
-    """Ses propres signatures ; un manager voit celles de tous (filtrables par ?user_id=)."""
+    """Ses propres signatures ; un manager (ou le président / l'associé) voit celles de tous
+    (filtrables par ?user_id=)."""
     stmt = select(Signature).order_by(Signature.name)
-    if not is_manager(user):
+    if not _power(db, user):
         stmt = stmt.where(Signature.user_id == user.id)
     elif user_id:
         stmt = stmt.where(Signature.user_id == user_id)
@@ -188,7 +261,7 @@ def delete_signature(sig_id: int, db: Session = Depends(get_db), user: User = De
 @router.get("", response_model=list[ExpenseOut])
 def list_expenses(db: Session = Depends(get_db), user: User = Depends(current_user)):
     stmt = select(Expense).order_by(Expense.expense_date.desc(), Expense.id.desc())
-    if not is_manager(user):  # un membre ne voit que ses notes
+    if not _power(db, user):  # un membre ne voit que ses notes
         stmt = stmt.where((Expense.user_id == user.id) | (Expense.created_by == user.email))
     return [_out(e) for e in db.scalars(stmt)]
 
@@ -217,7 +290,8 @@ def delete(expense_id: int, db: Session = Depends(get_db), user: User = Depends(
     e = _get(db, user, expense_id)
     if e.pdf_path:
         Path(e.pdf_path).unlink(missing_ok=True)
-    _remove_receipt(e)
+    for r in e.receipts:
+        Path(r.path).unlink(missing_ok=True)
     db.delete(e)
     db.commit()
 
@@ -258,53 +332,60 @@ def _generate(db: Session, e: Expense) -> Response:
 @router.post("/save")
 async def save_and_download(
     data: str = Form(..., description="Champs de la note (JSON)"),
-    receipt: UploadFile | None = File(None),
-    remove_receipt: bool = Form(False),
+    receipts: list[UploadFile] = File(default=[]),
+    remove_receipt_ids: list[int] = Form(default=[]),
     expense_id: int | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ):
-    """Bouton « Enregistrer » : sauvegarde la note (et son justificatif), génère le PDF, le dépose
-    dans Drive et le renvoie."""
+    """Bouton « Enregistrer » : sauvegarde la note et ses justificatifs (ajouts, retraits), génère
+    le PDF, le dépose dans Drive et le renvoie."""
     try:
         body = ExpenseIn.model_validate_json(data)
     except ValidationError as exc:
         raise HTTPException(422, "; ".join(err["msg"] for err in exc.errors())) from exc
-    upload = await _read_receipt(receipt) if receipt and receipt.filename else None
+    uploads = [await _read_receipt(f) for f in receipts if f.filename]
     e = _get(db, user, expense_id) if expense_id else None
     if not e:
         e = Expense(created_by=user.email)
-    _apply(db, user, e, body)  # vérifie utilisateur et signature avant toute écriture
+    _apply(db, user, e, body)  # vérifie utilisateur et signatures avant toute écriture
     db.add(e)
-    previous = (e.receipt_path, e.receipt_name)
-    if upload or remove_receipt:
-        e.receipt_path, e.receipt_name = "", ""
-        if upload:
-            content, ext, original = upload
-            path = _dir("receipts") / f"{secrets.token_hex(16)}{ext}"  # nom aléatoire
-            path.write_bytes(content)
-            e.receipt_path, e.receipt_name = str(path), original[:300]
+    removed = [r for r in e.receipts if r.id in set(remove_receipt_ids)]
+    if len(e.receipts) - len(removed) + len(uploads) > MAX_RECEIPTS:
+        raise HTTPException(400, f"{MAX_RECEIPTS} justificatifs maximum par note de frais.")
+    for r in removed:
+        e.receipts.remove(r)
+    added: list[ExpenseReceipt] = []
+    start = max((r.position for r in e.receipts), default=-1) + 1
+    for i, (content, ext, original) in enumerate(uploads):
+        path = _dir("receipts") / f"{secrets.token_hex(16)}{ext}"  # nom aléatoire
+        path.write_bytes(content)
+        added.append(ExpenseReceipt(path=str(path), name=original[:300], position=start + i))
+    e.receipts.extend(added)
     db.commit()
     try:
         response = _generate(db, e)
     except expense_pdf.ReceiptError as exc:
-        # Justificatif refusé : on revient au précédent, la note reste enregistrée.
-        if e.receipt_path != previous[0]:
-            Path(e.receipt_path).unlink(missing_ok=True)
-        e.receipt_path, e.receipt_name = previous
+        # Justificatif illisible : on annule les ajouts de cet enregistrement (la note reste enregistrée).
+        for r in added:
+            Path(r.path).unlink(missing_ok=True)
+            e.receipts.remove(r)
         db.commit()
         raise HTTPException(400, str(exc)) from exc
-    if (upload or remove_receipt) and previous[0] and previous[0] != e.receipt_path:
-        Path(previous[0]).unlink(missing_ok=True)  # ancien justificatif remplacé
+    for r in removed:
+        Path(r.path).unlink(missing_ok=True)
     return response
 
 
-@router.get("/{expense_id}/receipt")
-def download_receipt(expense_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)):
+@router.get("/{expense_id}/receipts/{receipt_id}")
+def download_receipt(
+    expense_id: int, receipt_id: int, db: Session = Depends(get_db), user: User = Depends(current_user)
+):
     e = _get(db, user, expense_id)
-    if not e.receipt_path or not Path(e.receipt_path).exists():
-        raise HTTPException(404, "Aucun justificatif pour cette note")
-    return FileResponse(e.receipt_path, filename=e.receipt_name or Path(e.receipt_path).name)
+    r = next((x for x in e.receipts if x.id == receipt_id), None)
+    if not r or not Path(r.path).exists():
+        raise HTTPException(404, "Justificatif introuvable")
+    return FileResponse(r.path, filename=r.name)
 
 
 @router.get("/{expense_id}/pdf")

@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
-import { useState } from "react";
-import { Field as IField, User, api } from "../api";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { DirectoryUser, Field as IField, Signers, User, api } from "../api";
 import { Badge, Button, Card, ErrorMsg, Field, Loading, Modal, PageHeader, fmtDateTime } from "../ui";
 
 const GROUPS: Record<string, { title: string; test?: string; intro: string }> = {
@@ -100,6 +101,34 @@ function Mailboxes() {
   );
 }
 
+/** Président et associé : leurs signatures sont demandées sur chaque note de frais. */
+function ExpenseSigners() {
+  const qc = useQueryClient();
+  const people = useQuery({ queryKey: ["directory"], queryFn: () => api<DirectoryUser[]>("/users/directory") });
+  const current = useQuery({ queryKey: ["expense-signers"], queryFn: () => api<Signers>("/expenses/signers") });
+  const [f, setF] = useState<{ president: number | null; partner: number | null } | null>(null);
+  useEffect(() => { if (current.data && !f) setF({ president: current.data.president?.id ?? null, partner: current.data.partner?.id ?? null }); }, [current.data, f]);
+  const save = useMutation({ mutationFn: () => api("/expenses/signers", "PUT", f), onSuccess: () => qc.invalidateQueries({ queryKey: ["expense-signers"] }) });
+  if (!f) return null;
+  return (
+    <Card title="Signataires des notes de frais" action={<Button variant="soft" busy={save.isPending} onClick={() => save.mutate()}>Enregistrer</Button>}>
+      <p className="mb-4 text-xs text-slate-400">Chaque note de frais porte trois signatures : le demandeur, le président et l'associé. Le président et l'associé voient toutes les notes et y apposent leur propre signature.</p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {(["president", "partner"] as const).map((k) => (
+          <Field key={k} label={k === "president" ? "Président" : "Associé"}>
+            <select value={f[k] ?? ""} onChange={(e) => setF({ ...f, [k]: e.target.value ? Number(e.target.value) : null })}>
+              <option value="">— Non désigné —</option>
+              {(people.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}{p.name !== p.email ? ` (${p.email})` : ""}</option>)}
+            </select>
+          </Field>
+        ))}
+      </div>
+      {save.isSuccess && <p className="mt-3 text-sm text-emerald-700">Enregistré.</p>}
+      <ErrorMsg error={save.error} />
+    </Card>
+  );
+}
+
 function Integrations() {
   const [result, setResult] = useState<Record<string, string>>({});
   const { data } = useQuery({ queryKey: ["integrations"], queryFn: () => api<IField[]>("/integrations") });
@@ -112,6 +141,7 @@ function Integrations() {
   return (
     <div className="space-y-6">
       <Mailboxes />
+      <ExpenseSigners />
       {Object.entries(GROUPS).map(([g, meta]) => (
         <Card key={g} title={meta.title} action={meta.test && <Button variant="soft" busy={test.isPending && test.variables === meta.test} onClick={() => test.mutate(meta.test!)}>Tester la connexion</Button>}>
           <p className="mb-4 text-xs text-slate-400">{meta.intro}</p>
@@ -187,7 +217,7 @@ function Users({ me }: { me: User }) {
         <ul className="divide-y divide-slate-100">
           {users.data?.map((u) => (
             <li key={u.id} className="flex items-center justify-between py-2.5 text-sm">
-              <span>{u.name || u.email} <span className="text-slate-400">{u.email}</span></span>
+              <Link to={`/profil/${u.id}`} className="hover:text-brand-600">{u.name || u.email} <span className="text-slate-400">{u.email}</span></Link>
               <span className="flex items-center gap-3"><Badge tone={u.role === "admin" ? "blue" : u.role === "manager" ? "amber" : "slate"}>{u.role === "admin" ? "Admin" : u.role === "manager" ? "Manager" : "Membre"}</Badge>{u.totp_enabled && <Badge tone="green">2FA</Badge>}
                 {u.id !== me.id && <button className="text-xs text-red-600" onClick={() => confirm(`Supprimer ${u.email} ?`) && del.mutate(u.id)}>Supprimer</button>}</span>
             </li>

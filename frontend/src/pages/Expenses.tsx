@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { DirectoryUser, Expense, SignatureRow, User, api, isManager, postForPdf } from "../api";
+import { DirectoryUser, Expense, SignatureRow, Signers, User, api, isManager, postForPdf } from "../api";
 import SignaturePad from "./SignaturePad";
 import { Badge, Button, Card, Empty, ErrorMsg, Field, Loading, PageHeader, fmtDate, fmtMoney } from "../ui";
 
@@ -8,7 +8,8 @@ const CATEGORIES = ["Transport", "Hébergement", "Repas", "Matériel", "Logiciel
 const PAYMENTS = ["Carte bancaire perso", "Carte entreprise", "Espèces", "Virement"];
 
 const blank = (user: User) => ({
-  expense_date: new Date().toISOString().slice(0, 10), user_id: user.id as number, signature_id: null as number | null, reason: "", category: "Transport",
+  expense_date: new Date().toISOString().slice(0, 10), user_id: user.id as number, signature_id: null as number | null,
+  president_signature_id: null as number | null, partner_signature_id: null as number | null, reason: "", category: "Transport",
   project: "", payment_method: PAYMENTS[0], amount_ttc: "" as number | "", vat_rate: 20, notes: "",
 });
 
@@ -18,34 +19,82 @@ const lastSig = {
   set: (uid: number, id: number | null) => { try { if (id) localStorage.setItem(`ndf-sig-${uid}`, String(id)); } catch { /* stockage indisponible */ } },
 };
 
+type SlotKey = "signature_id" | "president_signature_id" | "partner_signature_id";
+
+/** Une case de signature : les signatures de la personne attendue (demandeur, président ou associé). */
+function SignatureSlot({ label, owner, value, onChange, canSign, onNew }: {
+  label: string; owner: { id: number; name: string } | null; value: number | null;
+  onChange: (id: number | null) => void; canSign: boolean; onNew: () => void;
+}) {
+  const sigs = useQuery({
+    queryKey: ["signatures", owner?.id],
+    queryFn: () => api<SignatureRow[]>(`/expenses/signatures?user_id=${owner!.id}`),
+    enabled: !!owner,
+  });
+  const qc = useQueryClient();
+  const mine = (sigs.data ?? []).filter((sg) => sg.user_id === owner?.id);
+  const del = useMutation({
+    mutationFn: (sid: number) => api(`/expenses/signatures/${sid}`, "DELETE"),
+    onSuccess: () => { onChange(null); qc.invalidateQueries({ queryKey: ["signatures"] }); },
+  });
+  return (
+    <div className="rounded-md border border-slate-200 p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mb-2 text-sm text-slate-700">{owner?.name ?? <span className="text-amber-700">À désigner dans Paramètres → Intégrations</span>}</p>
+      {owner && (canSign ? (
+        <div className="flex items-center gap-2">
+          <select value={value ?? ""} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}>
+            <option value="">— Pas encore signé —</option>
+            {mine.map((sg) => <option key={sg.id} value={sg.id}>{sg.name}</option>)}
+          </select>
+          <Button type="button" variant="soft" className="shrink-0 whitespace-nowrap" onClick={onNew}>+ Nouvelle</Button>
+        </div>
+      ) : <p className="text-xs text-slate-400">{value ? "Signé" : `En attente de la signature de ${owner.name}`}</p>)}
+      {value ? <img alt={`Signature – ${label}`} src={`/api/expenses/signatures/${value}/image`} className="mt-2 h-14 w-full rounded border border-slate-100 bg-white object-contain p-1" /> : null}
+      {value && canSign ? (
+        <button type="button" className="mt-1 text-xs text-red-600" disabled={del.isPending}
+          onClick={() => confirm("Supprimer définitivement cette signature ? Elle disparaîtra des notes de frais où elle est utilisée (les PDF déjà générés ne changent pas).") && del.mutate(value)}>
+          Supprimer cette signature
+        </button>
+      ) : null}
+      <ErrorMsg error={del.error} />
+    </div>
+  );
+}
+
 export default function Expenses({ user }: { user: User }) {
   const qc = useQueryClient();
   const [f, setF] = useState(blank(user));
   const [editId, setEditId] = useState<number | null>(null);
   const [done, setDone] = useState("");
   const [driveMsg, setDriveMsg] = useState("");
-  const [receipt, setReceipt] = useState<File | null>(null);
-  const [currentReceipt, setCurrentReceipt] = useState("");
-  const [removeReceipt, setRemoveReceipt] = useState(false);
+  const [newFiles, setNewFiles] = useState<File[]>([]);
+  const [currentFiles, setCurrentFiles] = useState<{ id: number; name: string }[]>([]);
+  const [removeIds, setRemoveIds] = useState<number[]>([]);
   const [fileKey, setFileKey] = useState(0); // remet à zéro le champ fichier
-  const [padOpen, setPadOpen] = useState(false);
-  const manager = isManager(user);
+  const [pad, setPad] = useState<{ slot: SlotKey; owner: { id: number; name: string } } | null>(null);
+  const signers = useQuery({ queryKey: ["expense-signers"], queryFn: () => api<Signers>("/expenses/signers") });
+  const isSigner = [signers.data?.president?.id, signers.data?.partner?.id].includes(user.id);
+  const manager = isManager(user) || isSigner;
   const people = useQuery({ queryKey: ["directory"], queryFn: () => api<DirectoryUser[]>("/users/directory") });
-  const sigs = useQuery({ queryKey: ["signatures", f.user_id], queryFn: () => api<SignatureRow[]>(`/expenses/signatures${manager ? `?user_id=${f.user_id}` : ""}`) });
+  const sigs = useQuery({ queryKey: ["signatures", f.user_id], queryFn: () => api<SignatureRow[]>(`/expenses/signatures?user_id=${f.user_id}`) });
   // Changement d'utilisateur : on propose sa dernière signature (ou sa seule signature).
   useEffect(() => {
     if (!sigs.data) return;
     setF((x) => {
-      if (x.signature_id && sigs.data.some((sg) => sg.id === x.signature_id)) return x;
+      const own = sigs.data.filter((sg) => sg.user_id === x.user_id);
+      if (x.signature_id && own.some((sg) => sg.id === x.signature_id)) return x;
       const remembered = lastSig.get(x.user_id);
-      const pick = sigs.data.find((sg) => sg.id === remembered) ?? (sigs.data.length === 1 ? sigs.data[0] : null);
+      const pick = own.find((sg) => sg.id === remembered) ?? (own.length === 1 ? own[0] : null);
       return { ...x, signature_id: pick?.id ?? null };
     });
   }, [sigs.data]);
-  const resetFiles = () => { setReceipt(null); setCurrentReceipt(""); setRemoveReceipt(false); setFileKey((k) => k + 1); };
+  const resetFiles = () => { setNewFiles([]); setCurrentFiles([]); setRemoveIds([]); setFileKey((k) => k + 1); };
+  const keptCount = currentFiles.length - removeIds.length + newFiles.length;
   const list = useQuery({ queryKey: ["expenses"], queryFn: () => api<Expense[]>("/expenses") });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
 
+  const requester = people.data?.find((p) => p.id === f.user_id);
   const ttc = Number(f.amount_ttc) || 0;
   const ht = Math.round((ttc / (1 + f.vat_rate / 100)) * 100) / 100;
 
@@ -53,8 +102,8 @@ export default function Expenses({ user }: { user: User }) {
     mutationFn: () => {
       const form = new FormData();
       form.append("data", JSON.stringify({ ...f, amount_ttc: ttc }));
-      if (receipt) form.append("receipt", receipt);
-      if (removeReceipt && !receipt) form.append("remove_receipt", "true");
+      newFiles.forEach((file) => form.append("receipts", file));
+      removeIds.forEach((id) => form.append("remove_receipt_ids", String(id)));
       return postForPdf(`/expenses/save${editId ? `?expense_id=${editId}` : ""}`, form);
     },
     onSuccess: (r) => {
@@ -74,15 +123,15 @@ export default function Expenses({ user }: { user: User }) {
   const edit = (e: Expense) => {
     setEditId(e.id);
     setDone("");
-    setF({ expense_date: e.expense_date, user_id: e.user_id ?? user.id, signature_id: e.signature_id, reason: e.reason, category: e.category, project: e.project, payment_method: e.payment_method, amount_ttc: e.amount_ttc, vat_rate: e.vat_rate, notes: e.notes });
+    setF({ expense_date: e.expense_date, user_id: e.user_id ?? user.id, signature_id: e.signature_id, president_signature_id: e.president_signature_id, partner_signature_id: e.partner_signature_id, reason: e.reason, category: e.category, project: e.project, payment_method: e.payment_method, amount_ttc: e.amount_ttc, vat_rate: e.vat_rate, notes: e.notes });
     resetFiles();
-    setCurrentReceipt(e.has_receipt ? e.receipt_name : "");
+    setCurrentFiles(e.receipt_files);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   return (
     <>
-      <PageHeader title="Notes de frais" subtitle="Remplissez les champs, cliquez sur Enregistrer : le PDF est généré, téléchargé et rangé dans Google Drive (Administration › Comptabilité › Note de frais)." />
+      <PageHeader title="Notes de frais" subtitle="Remplissez la note, faites-la signer (demandeur, président, associé), joignez les justificatifs : le PDF est généré, téléchargé et rangé dans Google Drive (Administration › Comptabilité › Note de frais)." />
       <Card title={editId ? `Modifier la note n°${editId}` : "Nouvelle note de frais"}>
         <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Date de la dépense *"><input type="date" required value={f.expense_date} onChange={(e) => set("expense_date", e.target.value)} /></Field>
@@ -107,27 +156,45 @@ export default function Expenses({ user }: { user: User }) {
           </Field>
           <Field label="Projet concerné" hint="Facultatif"><input value={f.project} onChange={(e) => set("project", e.target.value)} /></Field>
           <Field label="Remarques"><input value={f.notes} onChange={(e) => set("notes", e.target.value)} /></Field>
-          <div className="sm:col-span-2 lg:col-span-3 grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-2">
-            <Field label="Signature" hint="Imprimée dans le cadre « Signature du collaborateur »">
-              <div className="flex items-center gap-2">
-                <select value={f.signature_id ?? ""} onChange={(e) => set("signature_id", e.target.value ? Number(e.target.value) : null)}>
-                  <option value="">— Sans signature —</option>
-                  {(sigs.data ?? []).map((sg) => <option key={sg.id} value={sg.id}>{sg.name}</option>)}
-                </select>
-                <Button type="button" variant="soft" className="shrink-0 whitespace-nowrap" onClick={() => setPadOpen(true)}>+ Nouvelle</Button>
-              </div>
-              {f.signature_id && <img alt="Signature choisie" src={`/api/expenses/signatures/${f.signature_id}/image`} className="mt-2 h-14 rounded border border-slate-200 bg-white object-contain p-1" />}
+          <div className="sm:col-span-2 lg:col-span-3 border-t border-slate-100 pt-4">
+            <p className="mb-2 text-sm font-medium text-slate-800">Signatures <span className="font-normal text-slate-400">— imprimées dans les trois cadres du PDF</span></p>
+            <div className="grid gap-3 md:grid-cols-3">
+              {([
+                ["signature_id", "Le demandeur", requester ? { id: requester.id, name: requester.name } : { id: user.id, name: user.name || user.email }],
+                ["president_signature_id", "Le président", signers.data?.president ?? null],
+                ["partner_signature_id", "L'associé", signers.data?.partner ?? null],
+              ] as const).map(([slot, label, owner]) => (
+                <SignatureSlot key={slot} label={label} owner={owner} value={f[slot]} onChange={(v) => set(slot, v)}
+                  canSign={!!owner && (manager || owner.id === user.id)} onNew={() => owner && setPad({ slot, owner })} />
+              ))}
+            </div>
+          </div>
+          <div className="sm:col-span-2 lg:col-span-3">
+            <Field label={`Justificatifs (${keptCount}/10)`} hint="Tickets, factures… PDF, JPG ou PNG (10 Mo max. chacun) : ajoutés à la fin du PDF, dans l'ordre">
+              <input key={fileKey} type="file" multiple accept="application/pdf,image/jpeg,image/png" onChange={(e) => { const picked = Array.from(e.target.files ?? []); setNewFiles((x) => [...x, ...picked]); setFileKey((k) => k + 1); }} />
             </Field>
-            <Field label="Justificatif" hint="Ticket, facture… PDF, JPG ou PNG (10 Mo max.) : ajouté à la fin du PDF">
-              <input key={fileKey} type="file" accept="application/pdf,image/jpeg,image/png" onChange={(e) => setReceipt(e.target.files?.[0] ?? null)} />
-              {currentReceipt && !receipt && (
-                <p className="mt-2 flex flex-wrap items-center gap-3 text-xs">
-                  <span className={removeReceipt ? "text-slate-400 line-through" : "text-slate-600"}>Actuel : {currentReceipt}</span>
-                  <a className="text-brand-600" href={`/api/expenses/${editId}/receipt`} target="_blank" rel="noreferrer">Voir</a>
-                  <label className="flex items-center gap-1 text-red-700"><input type="checkbox" className="!w-auto" checked={removeReceipt} onChange={(e) => setRemoveReceipt(e.target.checked)} /> Retirer</label>
-                </p>
-              )}
-            </Field>
+            {(currentFiles.length > 0 || newFiles.length > 0) && (
+              <ul className="mt-2 divide-y divide-slate-100 rounded border border-slate-200 text-sm">
+                {currentFiles.map((r) => {
+                  const gone = removeIds.includes(r.id);
+                  return (
+                    <li key={`c${r.id}`} className="flex items-center justify-between px-3 py-1.5">
+                      <span className={gone ? "text-slate-400 line-through" : ""}>{r.name}</span>
+                      <span className="flex gap-3 text-xs">
+                        <a className="text-brand-600" href={`/api/expenses/${editId}/receipts/${r.id}`} target="_blank" rel="noreferrer">Voir</a>
+                        <button type="button" className={gone ? "text-brand-600" : "text-red-600"} onClick={() => setRemoveIds((x) => (gone ? x.filter((i) => i !== r.id) : [...x, r.id]))}>{gone ? "Garder" : "Retirer"}</button>
+                      </span>
+                    </li>
+                  );
+                })}
+                {newFiles.map((file, i) => (
+                  <li key={`n${i}`} className="flex items-center justify-between px-3 py-1.5">
+                    <span>{file.name} <Badge tone="blue">nouveau</Badge></span>
+                    <button type="button" className="text-xs text-red-600" onClick={() => setNewFiles((x) => x.filter((_, j) => j !== i))}>Retirer</button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
           <div className="space-y-3 sm:col-span-2 lg:col-span-3">
             <ErrorMsg error={save.error} />
@@ -140,10 +207,10 @@ export default function Expenses({ user }: { user: User }) {
           </div>
         </form>
       </Card>
-      {padOpen && (
-        <SignaturePad userId={manager ? f.user_id : null} defaultName={people.data?.find((p) => p.id === f.user_id)?.name ?? user.name}
-          onClose={() => setPadOpen(false)}
-          onCreated={(sg) => { setPadOpen(false); qc.invalidateQueries({ queryKey: ["signatures"] }); set("signature_id", sg.id); }} />
+      {pad && (
+        <SignaturePad userId={pad.owner.id === user.id ? null : pad.owner.id} defaultName={pad.owner.name}
+          onClose={() => setPad(null)}
+          onCreated={(sg) => { const slot = pad.slot; setPad(null); qc.invalidateQueries({ queryKey: ["signatures"] }); set(slot, sg.id); }} />
       )}
       <Card title="Historique" className="mt-6">
         <ErrorMsg error={retry.error} />
@@ -158,7 +225,8 @@ export default function Expenses({ user }: { user: User }) {
                     <td className="text-right font-medium">{fmtMoney(e.amount_ttc)}</td><td className="text-right text-slate-500">{fmtMoney(e.amount_vat)}</td>
                     <td className="space-x-3 whitespace-nowrap text-right text-xs">
                       {e.has_pdf && <a className="text-brand-600" href={`/api/expenses/${e.id}/pdf`}>PDF</a>}
-                      {e.has_receipt && <a className="text-brand-600" href={`/api/expenses/${e.id}/receipt`} target="_blank" rel="noreferrer" title={e.receipt_name}>Justificatif</a>}
+                      {e.receipt_files.length > 0 && <span className="text-slate-400" title={e.receipt_files.map((r) => r.name).join(", ")}>{e.receipt_files.length} justif.</span>}
+                      <span className="text-slate-400" title="Demandeur · Président · Associé">{[e.signature_id, e.president_signature_id, e.partner_signature_id].filter(Boolean).length}/3 sign.</span>
                       {e.drive_link ? <a className="text-brand-600" href={e.drive_link} target="_blank" rel="noreferrer noopener">Drive ↗</a>
                         : e.has_pdf && <button className="text-amber-700" disabled={retry.isPending} onClick={() => retry.mutate(e.id)} title="Le PDF n'est pas encore dans Google Drive">Envoyer dans Drive</button>}
                       <button className="text-brand-600" onClick={() => edit(e)}>Modifier</button>

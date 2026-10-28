@@ -226,17 +226,34 @@ class Expense(Base):
     amount_vat: Mapped[float] = mapped_column(Numeric(12, 2, asdecimal=False))
     notes: Mapped[str] = mapped_column(Text, default="")
     pdf_path: Mapped[str] = mapped_column(String(300), default="")
+    # Signatures : le demandeur, le président et l'associé (cf. « signataires » dans les paramètres).
     signature_id: Mapped[int | None] = mapped_column(
         ForeignKey("signatures.id", ondelete="SET NULL"), nullable=True
     )
-    # Justificatif (ticket, facture…) : fichier stocké sous un nom aléatoire, ajouté à la fin du PDF.
-    receipt_path: Mapped[str] = mapped_column(String(300), default="", server_default="")
-    receipt_name: Mapped[str] = mapped_column(String(300), default="", server_default="")
+    president_signature_id: Mapped[int | None] = mapped_column(
+        ForeignKey("signatures.id", ondelete="SET NULL"), nullable=True
+    )
+    partner_signature_id: Mapped[int | None] = mapped_column(
+        ForeignKey("signatures.id", ondelete="SET NULL"), nullable=True
+    )
+    # Justificatifs (tickets, factures…) : ajoutés à la fin du PDF, dans l'ordre.
+    receipts: Mapped[list["ExpenseReceipt"]] = relationship(
+        cascade="all, delete-orphan", order_by="ExpenseReceipt.position, ExpenseReceipt.id"
+    )
     # PDF déposé dans Google Drive (Administration > Comptabilité > Note de frais)
     drive_file_id: Mapped[str] = mapped_column(String(100), default="", server_default="")
     drive_link: Mapped[str] = mapped_column(String(500), default="", server_default="")
     created_by: Mapped[str] = mapped_column(String(255), default="")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class ExpenseReceipt(Base):
+    __tablename__ = "expense_receipts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    expense_id: Mapped[int] = mapped_column(ForeignKey("expenses.id", ondelete="CASCADE"), index=True)
+    path: Mapped[str] = mapped_column(String(300))  # nom de fichier aléatoire
+    name: Mapped[str] = mapped_column(String(300))  # nom d'origine, pour l'affichage
+    position: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class TaxDeadline(Base):

@@ -200,7 +200,9 @@ class ExpenseIn(BaseModel):
     vat_rate: float = Field(20, ge=0, le=100)
     notes: str = ""
     user_id: int | None = None  # vide = soi-même
-    signature_id: int | None = None
+    signature_id: int | None = None  # demandeur
+    president_signature_id: int | None = None
+    partner_signature_id: int | None = None
 
 
 class ExpenseOut(ExpenseIn, ORM):
@@ -208,8 +210,7 @@ class ExpenseOut(ExpenseIn, ORM):
     amount_ht: float
     amount_vat: float
     has_pdf: bool = False
-    has_receipt: bool = False
-    receipt_name: str = ""
+    receipt_files: list[dict] = []  # [{id, name}]
     drive_link: str = ""
     created_at: datetime
 
