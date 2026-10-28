@@ -44,7 +44,7 @@ jobs:
 
       # Le worker réutilise l'image backend (même code, autre commande).
       - name: Build and push Backend
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./backend
           push: ${{ github.event_name != 'pull_request' }}
@@ -55,7 +55,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=backend
 
       - name: Build and push Frontend
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./frontend
           push: ${{ github.event_name != 'pull_request' }}
