@@ -1,4 +1,5 @@
 import imaplib
+from datetime import UTC, datetime
 from email.message import EmailMessage
 
 import pytest
@@ -50,6 +51,10 @@ class FakeImap:
     def uid(self, cmd, *args):
         self.calls.append(("uid", cmd, args))
         if cmd == "SEARCH":
+            if args[1:3] == ("HEADER", "Message-ID"):
+                wanted = args[3].strip('"').encode()
+                hits = [u for u, (raw, _) in self.current.items() if b"Message-ID: " + wanted in raw]
+                return "OK", [b" ".join(str(u).encode() for u in hits)]
             return "OK", [b" ".join(str(u).encode() for u in self.current)]
         uids = [int(u) for u in args[0].split(",")]
         what = args[1]
@@ -368,3 +373,37 @@ def test_read_full_mail_and_attachment(client, db, monkeypatch):
     monkeypatch.setattr(mail_imap, "connect", lambda _box: FakeImap({}, {}))
     gone = client.get(f"/api/mail/messages/{mid}/content")
     assert gone.status_code == 400 and "plus sur le serveur" in gone.json()["detail"]
+
+
+def test_read_mail_without_or_with_stale_uid(client, db, monkeypatch):
+    """Mail importé avant le suivi des numéros IMAP (ou numéro périmé) : retrouvé par son Message-ID."""
+    box = add_box(db)
+    inbox = dict(INBOX)
+    mail_imap.sync_inbox(db, box, conn=FakeImap(inbox, dict(SENT)))
+    monkeypatch.setattr(mail_imap, "connect", lambda _box: FakeImap(inbox, dict(SENT)))
+    row = db.scalar(select(MailMessage).where(MailMessage.subject == "Question facture"))
+    for stale in (None, 99):
+        row.imap_uid = stale
+        db.commit()
+        r = client.get(f"/api/mail/messages/{row.id}/content")
+        assert r.status_code == 200, r.text
+        assert "paiement" in r.json()["text"]
+        db.refresh(row)
+        assert row.imap_uid == 3  # numéro retrouvé et mémorisé
+
+
+def test_sync_purges_rows_no_longer_in_inbox(imap_db):
+    fake = FakeImap(dict(INBOX), dict(SENT))
+    mail_imap.sync_inbox(imap_db, imap_db.box, conn=fake)
+    # Ligne importée autrefois, sans numéro, dont le mail a quitté la boîte de réception.
+    imap_db.add(
+        MailMessage(
+            graph_id=f"imap:{imap_db.box.id}:<old@client.fr>",
+            mailbox_id=imap_db.box.id,
+            subject="Ancien",
+            received_at=datetime(2025, 1, 1, tzinfo=UTC),
+        )
+    )
+    imap_db.commit()
+    mail_imap.sync_inbox(imap_db, imap_db.box, conn=fake)
+    assert "Ancien" not in tags(imap_db) and len(tags(imap_db)) == 5

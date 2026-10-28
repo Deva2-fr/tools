@@ -251,12 +251,17 @@ def _message(db: Session, message_id: int) -> MailMessage:
 
 def _raw(db: Session, m: MailMessage) -> bytes:
     box = db.get(Mailbox, m.mailbox_id) if m.mailbox_id else None
-    if not box or m.imap_uid is None:
-        raise HTTPException(409, "Mail pas encore synchronisé : cliquez sur Actualiser puis réessayez.")
+    if not box:
+        raise HTTPException(404, "Boîte mail supprimée.")
+    message_id = m.graph_id.split(":", 2)[-1]
     try:
-        return mail_imap.fetch_raw(box, m.imap_uid)
+        uid, raw = mail_imap.fetch_raw(box, m.imap_uid, message_id)
     except mail_imap.ImapError as exc:
         raise HTTPException(400, str(exc)) from exc
+    if uid != m.imap_uid:
+        m.imap_uid = uid
+        db.commit()
+    return raw
 
 
 @router.get("/messages/{message_id}/content", dependencies=[Depends(current_user)])
