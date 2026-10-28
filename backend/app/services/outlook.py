@@ -171,3 +171,33 @@ def display_tag(msg: MailMessage) -> str:
     if msg.auto_tag == "a_repondre" and is_urgent(msg.subject, msg.preview):
         return "urgent"
     return msg.auto_tag
+
+
+def message_content(db: Session, graph_id: str) -> dict:
+    """Contenu complet d'un mail Microsoft 365 (même forme que mail_imap.full_content, sans pièces jointes)."""
+    headers = {"Authorization": f"Bearer {access_token(db)}"}
+    r = httpx.get(
+        f"{GRAPH}/me/messages/{graph_id}",
+        params={"$select": "subject,body,from,toRecipients,ccRecipients,receivedDateTime"},
+        headers=headers,
+        timeout=20,
+    )
+    r.raise_for_status()
+    m = r.json()
+
+    def addr(x: dict) -> str:
+        e = x.get("emailAddress", {})
+        return f"{e.get('name')} <{e.get('address')}>" if e.get("name") else e.get("address", "")
+
+    body = m.get("body") or {}
+    html = body.get("content", "") if body.get("contentType") == "html" else ""
+    return {
+        "subject": m.get("subject", ""),
+        "from": [addr(m["from"])] if m.get("from") else [],
+        "to": [addr(x) for x in m.get("toRecipients", [])],
+        "cc": [addr(x) for x in m.get("ccRecipients", [])],
+        "date": m.get("receivedDateTime", ""),
+        "text": "" if html else body.get("content", ""),
+        "html": html,
+        "attachments": [],
+    }

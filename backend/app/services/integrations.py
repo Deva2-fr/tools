@@ -80,6 +80,10 @@ FIELDS: list[Field] = [
         "Ex : « TVA non applicable, art. 293 B du CGI »",
         multiline=True,
     ),
+    Field("google_calendar_id", "", "google", internal=True),
+    Field("google_calendar_name", "", "google", internal=True),
+    Field("google_calendar_synced_at", "", "google", internal=True),
+    Field("google_calendar_error", "", "google", internal=True),
     # Signataires des notes de frais (id d'utilisateur), réglés dans Paramètres > Intégrations.
     Field("expense_president_user_id", "", "company", internal=True),
     Field("expense_partner_user_id", "", "company", internal=True),

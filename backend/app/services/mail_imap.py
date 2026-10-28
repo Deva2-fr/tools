@@ -335,3 +335,79 @@ def test_connection(box: Mailbox) -> str:
         return f"Connexion OK – {count} message(s) dans la boîte de réception, {sent_msg}."
     finally:
         _logout(conn)
+
+
+def _addresses(value) -> list[str]:
+    return [
+        f"{_decode(name)} <{addr}>" if name else addr
+        for name, addr in getaddresses([str(value or "")])
+        if addr
+    ]
+
+
+def full_content(raw: bytes) -> dict:
+    """Contenu complet d'un mail : texte, HTML (affiché isolé côté navigateur) et pièces jointes."""
+    msg = email.message_from_bytes(raw, policy=default_policy)
+    text, html, attachments = "", "", []
+    for i, part in enumerate(msg.walk()):
+        if part.is_multipart():
+            continue
+        filename = part.get_filename()
+        disposition = (part.get_content_disposition() or "").lower()
+        ctype = part.get_content_type()
+        if filename or disposition == "attachment":
+            payload = part.get_payload(decode=True) or b""
+            attachments.append(
+                {"index": i, "name": _decode(filename) or "piece-jointe", "size": len(payload), "type": ctype}
+            )
+            continue
+        try:
+            content = part.get_content()
+        except Exception:  # noqa: BLE001 - partie mal encodée : ignorée
+            continue
+        if ctype == "text/plain" and not text:
+            text = content
+        elif ctype == "text/html" and not html:
+            html = content
+    if not text and html:
+        text = unescape(re.sub(r"<[^>]+>", " ", re.sub(r"(?is)<(script|style).*?</\1>", " ", html)))
+        text = re.sub(r"[ \t]+", " ", re.sub(r"\n\s*\n+", "\n\n", text)).strip()
+    return {
+        "subject": _decode(msg.get("Subject", "")),
+        "from": _addresses(msg.get("From")),
+        "to": _addresses(msg.get("To")),
+        "cc": _addresses(msg.get("Cc")),
+        "date": str(msg.get("Date", "")),
+        "text": text,
+        "html": html,
+        "attachments": attachments,
+    }
+
+
+def fetch_raw(box: Mailbox, uid: int, conn=None) -> bytes:
+    """Mail complet depuis la boîte de réception (lecture seule : BODY.PEEK, rien n'est marqué lu)."""
+    own = conn is None
+    conn = conn or connect(box)
+    try:
+        typ, _ = conn.select("INBOX", readonly=True)
+        if typ != "OK":
+            raise ImapError("Impossible d'ouvrir la boîte de réception (INBOX).")
+        items = _fetch(conn, [str(uid).encode()], "(BODY.PEEK[])")
+        if not items:
+            raise ImapError("Ce mail n'est plus sur le serveur (supprimé ou déplacé).")
+        return items[0][1]
+    finally:
+        if own:
+            _logout(conn)
+
+
+def attachment(raw: bytes, index: int) -> tuple[str, str, bytes]:
+    msg = email.message_from_bytes(raw, policy=default_policy)
+    for i, part in enumerate(msg.walk()):
+        if i == index and not part.is_multipart():
+            return (
+                _decode(part.get_filename()) or "piece-jointe",
+                part.get_content_type(),
+                part.get_payload(decode=True) or b"",
+            )
+    raise ImapError("Pièce jointe introuvable.")

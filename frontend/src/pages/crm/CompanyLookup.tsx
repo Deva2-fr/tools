@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { Badge, cx } from "../../ui";
 
-interface Hit {
+export interface Hit {
   label: string;
   siren: string;
   active: boolean;
@@ -11,7 +11,7 @@ interface Hit {
 }
 
 /** Recherche dans l'annuaire public des entreprises : choisir un résultat remplit la fiche « Société ». */
-export function CompanyLookup({ onPick, syncName = true }: { onPick: (values: Record<string, unknown>) => void; syncName?: boolean }) {
+export function CompanyLookup({ onPick, syncName = true, autoFocus = true }: { onPick: (values: Record<string, unknown>, hit?: Hit) => void; syncName?: boolean; autoFocus?: boolean }) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<Hit[]>([]);
   const [busy, setBusy] = useState(false);
@@ -40,7 +40,7 @@ export function CompanyLookup({ onPick, syncName = true }: { onPick: (values: Re
 
   const pick = (h: Hit) => {
     // On ne remplace que par des valeurs connues : un champ vide de l'annuaire n'efface pas la saisie.
-    onPick(Object.fromEntries(Object.entries(h.fields).filter(([, v]) => v)));
+    onPick(Object.fromEntries(Object.entries(h.fields).filter(([, v]) => v)), h);
     setPicked(h.fields.name);
     setQ(h.fields.name);
     setHits([]);
@@ -51,7 +51,7 @@ export function CompanyLookup({ onPick, syncName = true }: { onPick: (values: Re
       <label className="block">
         <span className="mb-1 block text-xs font-medium text-slate-700">Rechercher l'entreprise (nom, SIREN ou SIRET)</span>
         <input
-          autoFocus
+          autoFocus={autoFocus}
           placeholder="Ex : Formasyl, 552120222…"
           value={q}
           onChange={(e) => {

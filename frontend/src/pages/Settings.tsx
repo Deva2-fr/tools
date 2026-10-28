@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { DirectoryUser, Field as IField, Signers, User, api } from "../api";
 import { Badge, Button, Card, ErrorMsg, Field, Loading, Modal, PageHeader, fmtDateTime } from "../ui";
+import { CompanyLookup, Hit } from "./crm/CompanyLookup";
 
 const GROUPS: Record<string, { title: string; test?: string; intro: string }> = {
-  company: { title: "Ma société (devis & factures)", intro: "Ces informations apparaissent sur vos PDF de devis et factures. Pensez à les compléter avant d'émettre votre première facture. Guide : section 8." },
+  company: { title: "Ma société (devis & factures)", intro: "Tapez le nom de la société (ou son SIREN) et choisissez-la : raison sociale, forme juridique, SIRET, TVA et adresse se remplissent seuls. Ces informations apparaissent sur les devis, factures et notes de frais. Guide : section 8." },
   google: { title: "Google Drive (notes de frais)", test: "google", intro: "Chaque note de frais enregistrée est déposée en PDF dans Deva2 › Administration › Comptabilité › Note de frais. Guide : section 4." },
   email: { title: "E-mail d'envoi des alertes (SMTP)", test: "smtp", intro: "Pour recevoir les alertes par e-mail. Guide : section 5." },
   qonto: { title: "Banque Qonto (trésorerie)", test: "qonto", intro: "Synchronise automatiquement (toutes les heures) vos comptes, transactions, devis et factures Qonto. Lecture seule. Guide : section 12." },
@@ -129,8 +130,37 @@ function ExpenseSigners() {
   );
 }
 
+/** « Ma société » : recherche dans l'annuaire des entreprises, puis enregistrement des champs trouvés. */
+function CompanyAutofill({ onDone }: { onDone: () => void }) {
+  const [msg, setMsg] = useState("");
+  const fill = useMutation({
+    mutationFn: async ({ v, hit }: { v: Record<string, unknown>; hit?: Hit }) => {
+      const str = (k: string) => String(v[k] ?? "").trim();
+      const values: Record<string, string> = {
+        company_name: str("name"),
+        company_siret: str("siret"),
+        company_vat: str("vat_number"),
+        company_address: [str("address"), `${str("postal_code")} ${str("city")}`.trim()].filter(Boolean).join("\n"),
+        company_legal_form: hit?.legal_form ?? "",
+      };
+      for (const [k, val] of Object.entries(values)) if (val) await api(`/integrations/${k}`, "PUT", { value: val });
+      return values.company_name;
+    },
+    onSuccess: (name) => { setMsg(`Informations de « ${name} » enregistrées : complétez le capital, l'e-mail, le téléphone et l'IBAN.`); onDone(); },
+  });
+  return (
+    <div className="mb-4">
+      <CompanyLookup syncName={false} autoFocus={false} onPick={(v, hit) => hit && fill.mutate({ v, hit })} />
+      {msg && <p className="mt-2 text-sm text-emerald-700">{msg}</p>}
+      <ErrorMsg error={fill.error} />
+    </div>
+  );
+}
+
 function Integrations() {
+  const qc = useQueryClient();
   const [result, setResult] = useState<Record<string, string>>({});
+  const [version, setVersion] = useState(0); // remonte les champs après un remplissage automatique
   const { data } = useQuery({ queryKey: ["integrations"], queryFn: () => api<IField[]>("/integrations") });
   const test = useMutation({
     mutationFn: (s: string) => api<{ message: string }>(`/integrations/test/${s}`, "POST"),
@@ -146,8 +176,9 @@ function Integrations() {
         <Card key={g} title={meta.title} action={meta.test && <Button variant="soft" busy={test.isPending && test.variables === meta.test} onClick={() => test.mutate(meta.test!)}>Tester la connexion</Button>}>
           <p className="mb-4 text-xs text-slate-400">{meta.intro}</p>
           {meta.test && result[meta.test] && <p className="mb-4 text-sm">{result[meta.test]}</p>}
+          {g === "company" && <CompanyAutofill onDone={() => qc.invalidateQueries({ queryKey: ["integrations"] }).then(() => setVersion((v) => v + 1))} />}
           <div className="grid gap-4 sm:grid-cols-2">
-            {data.filter((f) => f.group === g).map((f) => <div key={f.key} className={f.multiline ? "sm:col-span-2" : ""}><IntegrationField f={f} /></div>)}
+            {data.filter((f) => f.group === g).map((f) => <div key={`${f.key}-${version}`} className={f.multiline ? "sm:col-span-2" : ""}><IntegrationField f={f} /></div>)}
           </div>
         </Card>
       ))}

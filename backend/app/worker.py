@@ -10,6 +10,7 @@ from app.core.db import SessionLocal
 from app.services import (
     billing,
     digest,
+    google_calendar,
     mailbox,
     monitoring,
     qonto,
@@ -61,6 +62,12 @@ def job_taxes(db):
     log.info("Rappels d'échéances envoyés : %d", taxes.send_reminders(db))
 
 
+@safe("google_agenda")
+def job_calendar(db):
+    if google_calendar.calendar_id(db):
+        log.info("Google Agenda : %d échéance(s) synchronisée(s)", google_calendar.sync_all(db))
+
+
 @safe("facturation")
 def job_billing(db):
     log.info("Relances de factures : %d", billing.send_reminders(db))
@@ -94,6 +101,7 @@ def main():
     sched.add_job(job_qonto, "interval", hours=1, max_instances=1, coalesce=True)
     sched.add_job(job_cve, CronTrigger(hour=3, minute=15, timezone=tz))
     sched.add_job(job_taxes, CronTrigger(hour=8, minute=30, timezone=tz))
+    sched.add_job(job_calendar, "interval", hours=1, max_instances=1, coalesce=True)
     sched.add_job(job_billing, CronTrigger(hour=8, minute=35, timezone=tz))
     sched.add_job(job_renewals, CronTrigger(hour=8, minute=40, timezone=tz))
     sched.add_job(job_digest, CronTrigger(hour=8, minute=50, timezone=tz))

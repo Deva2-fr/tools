@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Tax, api } from "../api";
-import { Badge, Button, Card, Empty, ErrorMsg, Field, Loading, Modal, PageHeader, fmtMoney } from "../ui";
+import { Badge, Button, Card, Empty, ErrorMsg, Field, Loading, Modal, PageHeader, fmtDateTime, fmtMoney } from "../ui";
 
 const CATS: Record<string, string> = { tva: "TVA", is: "Impôt sociétés", cfe: "CFE", social: "Social", comptes: "Comptes annuels", autre: "Autre" };
 const REC: Record<string, string> = { none: "Une seule fois", monthly: "Chaque mois", quarterly: "Chaque trimestre", yearly: "Chaque année" };
@@ -58,6 +58,62 @@ function DateBlock({ t }: { t: Tax }) {
   );
 }
 
+interface CalStatus { google_configured: boolean; service_account_email: string; calendar_id: string; calendar_name: string; last_synced_at: string | null; last_error: string }
+
+/** Choix de l'agenda Google où apparaissent les échéances. */
+function GoogleCalendar() {
+  const qc = useQueryClient();
+  const st = useQuery({ queryKey: ["gcal"], queryFn: () => api<CalStatus>("/taxes/google-calendar") });
+  const cals = useQuery({ queryKey: ["gcal-list"], queryFn: () => api<{ id: string; name: string }[]>("/taxes/google-calendar/calendars"), enabled: !!st.data?.google_configured, retry: false });
+  const [newId, setNewId] = useState("");
+  const [open, setOpen] = useState(false);
+  const inval = () => { qc.invalidateQueries({ queryKey: ["gcal"] }); qc.invalidateQueries({ queryKey: ["gcal-list"] }); };
+  const add = useMutation({ mutationFn: () => api<{ id: string }>("/taxes/google-calendar/calendars", "POST", { calendar_id: newId }), onSuccess: (c) => { setNewId(""); inval(); select.mutate(c.id); } });
+  const select = useMutation({ mutationFn: (id: string) => api("/taxes/google-calendar/select", "PUT", { calendar_id: id }), onSuccess: inval });
+  const sync = useMutation({ mutationFn: () => api("/taxes/google-calendar/sync", "POST"), onSuccess: inval });
+  const s = st.data;
+  if (!s) return null;
+  return (
+    <div className="mb-6 rounded-md border border-slate-200 bg-white p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm">
+          <p className="font-medium text-slate-900">Google Agenda</p>
+          <p className="text-slate-500">
+            {!s.google_configured ? <>Renseignez d'abord la clé Google dans <b>Paramètres → Intégrations → Google</b>.</>
+              : s.calendar_id ? <>Échéances synchronisées dans <b>{s.calendar_name || s.calendar_id}</b>{s.last_synced_at ? ` · dernière synchronisation ${fmtDateTime(s.last_synced_at)}` : ""} · rappels 7 jours et 1 jour avant.</>
+              : "Pas encore relié : choisissez l'agenda où afficher les échéances."}
+          </p>
+        </div>
+        {s.google_configured && (
+          <div className="flex flex-wrap items-center gap-2">
+            <select className="!w-64" value={s.calendar_id} disabled={select.isPending} onChange={(e) => select.mutate(e.target.value)}>
+              <option value="">— Aucun agenda —</option>
+              {(cals.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            {s.calendar_id && <Button variant="soft" busy={sync.isPending} onClick={() => sync.mutate()}>Synchroniser</Button>}
+            <button className="text-xs text-brand-600" onClick={() => setOpen(!open)}>{open ? "Fermer" : "+ Ajouter un agenda"}</button>
+          </div>
+        )}
+      </div>
+      {s.last_error && <p className="mt-3 rounded bg-red-50 px-3 py-2 text-xs text-red-800">{s.last_error}</p>}
+      {open && s.google_configured && (
+        <div className="mt-4 space-y-3 border-t border-slate-100 pt-4 text-sm text-slate-600">
+          <ol className="list-decimal space-y-1 pl-5">
+            <li>Dans Google Agenda, ouvrez <b>Paramètres de l'agenda</b> voulu (ex. « Deva2 – Échéances »).</li>
+            <li><b>Partager avec des personnes</b> → ajoutez <code className="rounded bg-slate-100 px-1">{s.service_account_email}</code> avec le droit <b>« Apporter des modifications aux événements »</b>.</li>
+            <li>Copiez l'<b>ID de l'agenda</b> (section « Intégrer l'agenda ») et collez-le ici.</li>
+          </ol>
+          <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>
+            <input placeholder="ex. c_abc123…@group.calendar.google.com" value={newId} onChange={(e) => setNewId(e.target.value)} />
+            <Button type="submit" className="shrink-0 whitespace-nowrap" busy={add.isPending || select.isPending}>Ajouter et choisir</Button>
+          </form>
+        </div>
+      )}
+      <ErrorMsg error={add.error || select.error || sync.error} />
+    </div>
+  );
+}
+
 export default function Taxes() {
   const qc = useQueryClient();
   const [edit, setEdit] = useState<Tax | "new" | null>(null);
@@ -90,6 +146,7 @@ export default function Taxes() {
           <a href="/api/taxes/calendar.ics"><Button variant="ghost" type="button"> Exporter vers mon agenda</Button></a>
           <Button onClick={() => setEdit("new")}>+ Échéance</Button></div>} />
       {msg && <p className="mb-4 rounded bg-brand-50 px-3 py-2 text-sm text-brand-700">{msg}</p>}
+      <GoogleCalendar />
       {late.length > 0 && (
         <p className="mb-3 rounded-md border border-red-300 bg-red-50 px-4 py-2.5 text-sm text-red-800">
           <b>{late.length} échéance(s) dépassée(s) non marquée(s) comme payée(s)</b>, la plus ancienne le <span className="first-letter:uppercase">{longDate(late[0].due_date)}</span> : vérifiez-les ci-dessous (« C'est payé » si c'est fait).
