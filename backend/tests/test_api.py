@@ -154,3 +154,18 @@ def test_expense_pdf_without_google_drive(client):
 def test_dashboard(client):
     d = client.get("/api/dashboard").json()
     assert d["projects"]["total"] >= 3 and d["mails_to_reply"] == 0
+
+
+def test_company_settings_are_editable(client, db):
+    from app.services import integrations
+
+    for key, value in (
+        ("company_name", "DEVA2"),
+        ("company_siret", "12345678900011"),
+        ("invoice_terms_days", "45"),
+    ):
+        assert client.put(f"/api/integrations/{key}", json={"value": value}).status_code == 200
+    fields = {f["key"]: f for f in client.get("/api/integrations").json()}
+    assert fields["company_name"]["group"] == "company" and fields["company_name"]["value"] == "DEVA2"
+    assert integrations.company_info(db)["company_siret"] == "12345678900011"
+    assert integrations.terms_days(db) == 45

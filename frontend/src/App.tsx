@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { ApiError, User, api, isManager } from "./api";
 import Access from "./pages/Access";
 import Alerts from "./pages/Alerts";
@@ -18,6 +18,7 @@ import Renewals from "./pages/Renewals";
 import Settings from "./pages/Settings";
 import Taxes from "./pages/Taxes";
 import { Employees } from "./pages/Team";
+import Profile from "./pages/Profile";
 import Time from "./pages/Time";
 import Treasury from "./pages/Treasury";
 import CompanyDetail from "./pages/crm/CompanyDetail";
@@ -116,7 +117,7 @@ function Shell() {
           })}
         </nav>
         <div className="border-t border-stone-800 p-4 text-sm">
-          <p className="truncate font-medium text-stone-100">{user.name || user.email}</p>
+          <Link to="/profil" className="block truncate font-medium text-stone-100 hover:underline" title="Mon profil">{user.name || user.email}</Link>
           <p className="truncate text-xs text-stone-500">{user.email} · {user.role === "admin" ? "Admin" : user.role === "manager" ? "Manager" : "Membre"}</p>
           <button onClick={logout} className="mt-2 text-xs font-medium text-stone-400 hover:text-white">Se déconnecter</button>
         </div>
@@ -138,6 +139,8 @@ function Shell() {
             <Route path="/impots" element={<Taxes />} />
             <Route path="/temps" element={<Time user={user} />} />
             <Route path="/parametres" element={<Settings user={user} />} />
+            <Route path="/profil" element={<Profile me={user} />} />
+            <Route path="/profil/:id" element={<Profile me={user} />} />
             {mgr && <>
               <Route path="/facturation" element={<Billing />} />
               <Route path="/facturation/nouveau" element={<BillingEditor />} />
