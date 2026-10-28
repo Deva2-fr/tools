@@ -31,7 +31,7 @@ from app.schemas_crm import (
     StageIn,
     TaskIn,
 )
-from app.services import outlook
+from app.services import company_lookup, outlook
 
 router = APIRouter(prefix="/crm", dependencies=[Depends(current_user)])
 
@@ -299,6 +299,15 @@ def _import(db: Session, rows: list[dict], schema, model, key=None):
         created += 1
     db.commit()
     return {"created": created, "errors": errors[:20]}
+
+
+@router.get("/companies/lookup")
+def lookup_company(q: str = ""):
+    """Recherche dans l'annuaire public des entreprises (nom, SIREN ou SIRET) pour pré-remplir une fiche."""
+    try:
+        return company_lookup.search(q)
+    except company_lookup.CompanyLookupError as exc:
+        raise HTTPException(502, str(exc)) from exc
 
 
 @router.post("/companies/import", dependencies=[Depends(require_role("member"))])

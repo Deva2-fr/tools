@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { ResourcePage } from "../../components";
 import { CsvImportButton } from "../../csvimport";
 import { Badge } from "../../ui";
+import { CompanyLookup } from "./CompanyLookup";
 import { companyFields, kindLabel, kindTone } from "./shared";
 
 export default function Companies() {
@@ -13,6 +14,7 @@ export default function Companies() {
       newLabel="Nouvelle société"
       exportName="societes"
       fields={companyFields}
+      formTop={(patch) => <CompanyLookup onPick={patch} />}
       initial={{ kind: "prospect", country: "France" }}
       empty="Aucune société. Ajoutez-en une ou importez un fichier CSV."
       headerExtra={<div className="mb-4 flex justify-end"><CsvImportButton endpoint="/crm/companies/import" hint="Première ligne = en-têtes (name, kind, siret, vat_number, website, sector, email, phone, address, postal_code, city, country, tags, notes). Séparateur ; ou , . Les noms déjà présents sont ignorés." /></div>}

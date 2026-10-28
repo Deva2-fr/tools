@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Row, api } from "../api";
 import { FormModal, defaults } from "../components";
 import { CsvImportButton } from "../csvimport";
-import { Badge, Button, Card, Empty, ErrorMsg, Loading, PageHeader, cx, fmtDate, fmtMoney } from "../ui";
+import { Badge, Button, Card, Empty, ErrorMsg, Loading, PageHeader, cx, fmtDate, fmtDateTime, fmtMoney } from "../ui";
 
 interface Forecast { balance: number; lowest: number; end_balance: number; series: { date: string; balance: number }[]; events: { date: string; label: string; amount: number; type: string }[] }
 const accountFields = [{ name: "name", label: "Nom du compte", required: true }, { name: "initial_balance", label: "Solde initial (€)", type: "number" as const, hint: "Le solde du compte à la date de départ de votre saisie" }, { name: "iban", label: "IBAN" }];
@@ -45,11 +45,22 @@ export default function Treasury() {
   const saveTx = useMutation({ mutationFn: (b: Record<string, unknown>) => api("/transactions", "POST", b), onSuccess: () => { inval(); setModal(null); } });
   const delTx = useMutation({ mutationFn: (id: number) => api(`/transactions/${id}`, "DELETE"), onSuccess: inval });
   const delAcc = useMutation({ mutationFn: (id: number) => api(`/accounts/${id}`, "DELETE"), onSuccess: () => { setAcc(""); inval(); } });
+  const qonto = useQuery({ queryKey: ["qonto"], queryFn: () => api<{ configured: boolean; accounts: number; last_synced_at: string | null }>("/treasury/qonto") });
+  const sync = useMutation({ mutationFn: () => api<{ created: number }>("/treasury/qonto/sync", "POST"), onSuccess: inval });
   const accs = accounts.data ?? [];
   const f = fc.data;
   return (
     <>
-      <PageHeader title="Trésorerie" subtitle="Solde actuel et prévision : factures à encaisser, impôts et abonnements à venir." action={<div className="flex gap-2"><Button variant="ghost" onClick={() => setModal("account")}>+ Compte</Button><Button disabled={!accs.length} onClick={() => setModal("tx")}>+ Mouvement</Button></div>} />
+      <PageHeader title="Trésorerie" subtitle="Solde actuel et prévision : factures à encaisser, impôts et abonnements à venir." action={<div className="flex gap-2">{qonto.data?.configured && <Button variant="soft" busy={sync.isPending} onClick={() => sync.mutate()}>Synchroniser Qonto</Button>}<Button variant="ghost" onClick={() => setModal("account")}>+ Compte</Button><Button disabled={!accs.length} onClick={() => setModal("tx")}>+ Mouvement</Button></div>} />
+      {qonto.data && (
+        <p className="mb-4 text-sm text-slate-600">
+          {qonto.data.configured
+            ? <>Qonto connecté{qonto.data.last_synced_at ? <> · dernière synchronisation {fmtDateTime(qonto.data.last_synced_at)}</> : " · pas encore synchronisé"} · mise à jour automatique toutes les heures.</>
+            : <>Qonto n'est pas connecté : renseignez votre clé API dans <b>Paramètres → Intégrations → Banque Qonto</b> pour importer automatiquement vos comptes et transactions.</>}
+          {sync.data && <span className="ml-2 font-medium text-emerald-800">{sync.data.created} nouvelle(s) transaction(s) importée(s).</span>}
+        </p>
+      )}
+      <ErrorMsg error={sync.error} />
       {!f ? <Loading /> : (
         <div className="mb-6 grid gap-6 lg:grid-cols-[1fr_340px]">
           <Card title="Prévision de trésorerie" action={<select className="!w-auto" value={days} onChange={(e) => setDays(Number(e.target.value))}><option value={30}>30 jours</option><option value={90}>90 jours</option><option value={180}>6 mois</option></select>}>
@@ -68,7 +79,7 @@ export default function Treasury() {
         </div>
       )}
       <Card title="Mouvements bancaires" action={<div className="flex items-center gap-2">
-        <select className="!w-auto" value={acc} onChange={(e) => setAcc(e.target.value ? Number(e.target.value) : "")}><option value="">Tous les comptes</option>{accs.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+        <select className="!w-auto" value={acc} onChange={(e) => setAcc(e.target.value ? Number(e.target.value) : "")}><option value="">Tous les comptes</option>{accs.map((a) => <option key={a.id} value={a.id}>{a.name}{a.provider === "qonto" ? " (synchronisé)" : ""}</option>)}</select>
         {acc !== "" && <CsvImportButton endpoint="/transactions/import" extra={{ account_id: acc }} label="Importer un relevé" hint="Export CSV de votre banque : colonnes Date (JJ/MM/AAAA), Libellé, Montant (ou Débit / Crédit). Les doublons sont ignorés." />}
         {acc !== "" && <Button variant="danger" onClick={() => confirm("Supprimer ce compte et ses mouvements ?") && delAcc.mutate(Number(acc))}>Supprimer le compte</Button>}</div>}>
         <ErrorMsg error={delTx.error ?? delAcc.error} />
