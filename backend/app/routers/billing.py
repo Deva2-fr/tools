@@ -11,7 +11,7 @@ from app.models import BillingDoc, Company, Payment, User
 from app.routers._common import csv_response
 from app.routers.auth import audit
 from app.schemas_billing import DocIn, DocOut, PaymentIn, StatusIn
-from app.services import billing, billing_pdf, integrations
+from app.services import billing, billing_pdf, integrations, qonto, qonto_billing
 
 router = APIRouter(prefix="/billing", tags=["devis & factures"], dependencies=[Depends(manager_user)])
 
@@ -28,6 +28,14 @@ def _get(db: Session, doc_id: int) -> BillingDoc:
     d = db.get(BillingDoc, doc_id)
     if not d:
         raise HTTPException(404, "Document introuvable")
+    return d
+
+
+def _editable(d: BillingDoc) -> BillingDoc:
+    if d.provider == "qonto":
+        raise HTTPException(
+            400, "Document importé de Qonto : modifiez-le dans Qonto, il sera mis à jour ici."
+        )
     return d
 
 
@@ -91,6 +99,24 @@ def summary(db: Session = Depends(get_db)):
     }
 
 
+@router.get("/qonto")
+def qonto_status(db: Session = Depends(get_db)):
+    return {
+        "configured": qonto.is_configured(db),
+        "last_synced_at": integrations.get(db, "qonto_billing_synced_at") or None,
+    }
+
+
+@router.post("/qonto/sync")
+def qonto_sync(db: Session = Depends(get_db), user: User = Depends(manager_user)):
+    try:
+        res = qonto_billing.sync(db)
+    except qonto.QontoError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    audit(db, user.email, "qonto_billing_synced", f"{res['invoices']} factures, {res['quotes']} devis")
+    return res
+
+
 @router.post("", response_model=DocOut, status_code=201)
 def create(body: DocIn, db: Session = Depends(get_db), user: User = Depends(manager_user)):
     d = billing.create_doc(db, body, user.email)
@@ -105,12 +131,12 @@ def get_doc(doc_id: int, db: Session = Depends(get_db)):
 
 @router.put("/{doc_id}", response_model=DocOut)
 def update(doc_id: int, body: DocIn, db: Session = Depends(get_db)):
-    return _out(db, _guard(billing.update_doc, db, _get(db, doc_id), body))
+    return _out(db, _guard(billing.update_doc, db, _editable(_get(db, doc_id)), body))
 
 
 @router.delete("/{doc_id}", status_code=204)
 def delete(doc_id: int, db: Session = Depends(get_db), user: User = Depends(manager_user)):
-    d = _get(db, doc_id)
+    d = _editable(_get(db, doc_id))
     if d.status != "draft":
         raise HTTPException(
             400, "Seuls les brouillons peuvent être supprimés (un document émis garde son numéro)."
@@ -122,21 +148,21 @@ def delete(doc_id: int, db: Session = Depends(get_db), user: User = Depends(mana
 
 @router.post("/{doc_id}/issue", response_model=DocOut)
 def issue(doc_id: int, db: Session = Depends(get_db), user: User = Depends(manager_user)):
-    d = _guard(billing.issue, db, _get(db, doc_id))
+    d = _guard(billing.issue, db, _editable(_get(db, doc_id)))
     audit(db, user.email, f"{d.kind}_issued", d.number or "")
     return _out(db, d)
 
 
 @router.post("/{doc_id}/status", response_model=DocOut)
 def status(doc_id: int, body: StatusIn, db: Session = Depends(get_db), user: User = Depends(manager_user)):
-    d = _guard(billing.set_status, db, _get(db, doc_id), body.status)
+    d = _guard(billing.set_status, db, _editable(_get(db, doc_id)), body.status)
     audit(db, user.email, f"{d.kind}_{body.status}", d.number or "")
     return _out(db, d)
 
 
 @router.post("/{doc_id}/convert", response_model=DocOut, status_code=201)
 def convert(doc_id: int, db: Session = Depends(get_db), user: User = Depends(manager_user)):
-    inv = _guard(billing.convert_to_invoice, db, _get(db, doc_id), user.email)
+    inv = _guard(billing.convert_to_invoice, db, _editable(_get(db, doc_id)), user.email)
     audit(db, user.email, "quote_converted", str(doc_id))
     return _out(db, inv)
 
@@ -145,7 +171,7 @@ def convert(doc_id: int, db: Session = Depends(get_db), user: User = Depends(man
 def add_payment(
     doc_id: int, body: PaymentIn, db: Session = Depends(get_db), user: User = Depends(manager_user)
 ):
-    d = _get(db, doc_id)
+    d = _editable(_get(db, doc_id))
     _guard(billing.add_payment, db, d, body.paid_on, body.amount, body.method, body.note)
     audit(db, user.email, "payment_added", f"{d.number}: {body.amount}")
     return _out(db, d)
@@ -155,7 +181,7 @@ def add_payment(
 def delete_payment(
     doc_id: int, payment_id: int, db: Session = Depends(get_db), user: User = Depends(manager_user)
 ):
-    d = _get(db, doc_id)
+    d = _editable(_get(db, doc_id))
     p = next((x for x in d.payments if x.id == payment_id), None)
     if not p:
         raise HTTPException(404)

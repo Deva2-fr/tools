@@ -17,7 +17,7 @@ import PublicStatus from "./pages/PublicStatus";
 import Renewals from "./pages/Renewals";
 import Settings from "./pages/Settings";
 import Taxes from "./pages/Taxes";
-import Team, { Employees } from "./pages/Team";
+import { Employees } from "./pages/Team";
 import Time from "./pages/Time";
 import Treasury from "./pages/Treasury";
 import CompanyDetail from "./pages/crm/CompanyDetail";
@@ -33,13 +33,13 @@ const SECTIONS: { title: string; items: NavItem[] }[] = [
   { title: "Commercial", items: [
     { to: "/crm/societes", label: "Sociétés" }, { to: "/crm/contacts", label: "Contacts" },
     { to: "/crm/pipeline", label: "Pipeline" }, { to: "/crm/taches", label: "Tâches" },
-    { to: "/mails", label: "Mails Outlook" } ] },
+    { to: "/mails", label: "Mails" } ] },
   { title: "Finances", items: [
     { to: "/facturation", label: "Devis & factures", manager: true }, { to: "/tresorerie", label: "Trésorerie", manager: true },
     { to: "/abonnements", label: "Abonnements & contrats", manager: true }, { to: "/notes-de-frais", label: "Notes de frais" },
     { to: "/impots", label: "Impôts & TVA" } ] },
   { title: "Équipe", items: [
-    { to: "/temps", label: "Suivi du temps" }, { to: "/equipe", label: "Congés" },
+    { to: "/temps", label: "Suivi du temps" },
     { to: "/equipe/collaborateurs", label: "Collaborateurs", manager: true }, { to: "/documents", label: "Documents", manager: true },
     { to: "/acces", label: "Registre des accès", manager: true } ] },
   { title: "Infrastructure", items: [{ to: "/projets", label: "Projets & serveurs" }, { to: "/alertes", label: "Alertes & sécurité" }] },
@@ -111,7 +111,7 @@ function Shell() {
               <div key={i}>
                 {sec.title && <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-stone-500">{sec.title}</p>}
                 <div className="space-y-0.5">{items.map((n) => (
-                  <NavLink key={n.to} to={n.to} end={n.end ?? n.to === "/equipe"} className={({ isActive }) => cx("block border-l-2 px-3 py-1.5 text-sm transition", isActive ? "border-emerald-400 bg-white/5 font-medium text-white" : "border-transparent text-stone-400 hover:text-stone-100")}>{n.label}</NavLink>))}</div>
+                  <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => cx("block border-l-2 px-3 py-1.5 text-sm transition", isActive ? "border-emerald-400 bg-white/5 font-medium text-white" : "border-transparent text-stone-400 hover:text-stone-100")}>{n.label}</NavLink>))}</div>
               </div>) : null;
           })}
         </nav>
@@ -137,7 +137,6 @@ function Shell() {
             <Route path="/notes-de-frais" element={<Expenses user={user} />} />
             <Route path="/impots" element={<Taxes />} />
             <Route path="/temps" element={<Time user={user} />} />
-            <Route path="/equipe" element={<Team user={user} />} />
             <Route path="/parametres" element={<Settings user={user} />} />
             {mgr && <>
               <Route path="/facturation" element={<Billing />} />

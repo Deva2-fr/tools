@@ -4,14 +4,14 @@ Application interne qui centralise **tout le pilotage de la société Deva2** : 
 
 | Domaine | Modules |
 |---|---|
-| 🤝 **Commercial (CRM)** | **Sociétés** et **contacts** (fiche complète : activités, mails Outlook liés, devis/factures, tâches), **pipeline** en Kanban (glisser-déposer) avec prévision de CA pondérée, **tâches** et journal d'activité, import/export CSV, recherche globale **⌘K** |
-| 💶 **Finances** | **Devis & factures** (numérotation continue sans trou, TVA par taux, PDF, paiements partiels, devis → facture, relances automatiques des impayés), **trésorerie** (comptes, import CSV bancaire, prévision à 30/90/180 j), **abonnements, domaines & contrats** (rappels de renouvellement, coût annuel), **notes de frais** (Google Doc → PDF), **impôts & TVA** (échéances + rappels, export agenda) |
-| 👥 **Équipe** | Collaborateurs, **congés** (demande → validation, calendrier d'absences, soldes), **check-lists** arrivée/départ, **suivi du temps** et **rentabilité par client**, **coffre de documents**, **registre des accès** (sans mots de passe) |
+| 🤝 **Commercial (CRM)** | **Sociétés** et **contacts** (fiche complète : activités, mails liés, devis/factures, tâches), **pipeline** en Kanban (glisser-déposer) avec prévision de CA pondérée, **tâches** et journal d'activité, import/export CSV, recherche globale **⌘K** |
+| 💶 **Finances** | **Devis & factures** (importés de **Qonto** ou créés dans le Hub : numérotation continue sans trou, TVA par taux, PDF, paiements partiels, devis → facture, relances automatiques des impayés), **trésorerie** (comptes, import CSV bancaire, prévision à 30/90/180 j), **abonnements, domaines & contrats** (rappels de renouvellement, coût annuel, factures liées), **notes de frais** (PDF rangé dans Google Drive), **impôts & TVA** (échéances + rappels, export agenda) |
+| 👥 **Équipe** | Collaborateurs, **check-lists** arrivée/départ, **suivi du temps** et **rentabilité par client**, **coffre de documents**, **registre des accès** (sans mots de passe) |
 | 🌐 **Infrastructure** | **Projets & serveurs** (formasyl.org, dev.icetheaters.deva2.fr, deva2.fr…), **monitoring** (disponibilité, SSL, en-têtes), **alertes** e-mail/Slack/Discord/Telegram (panne, attaque probable, faille critique), **veille CVE** (NVD + CISA KEV), **page de statut publique** `/statut` |
-| ✉️ **Mails** | Boîte **Outlook** en lecture seule avec tags « À répondre » / « Urgent » / « Répondu » |
-| 📣 **Pilotage** | **Résumé quotidien** à 8h50 (mails, tâches, factures en retard, échéances, renouvellements, congés à valider) et **tableau de bord** adapté au rôle |
+| ✉️ **Mails** | Boîte mail (**IMAP**, ou Microsoft 365) en lecture seule avec tags « À répondre » / « Urgent » / « Répondu » |
+| 📣 **Pilotage** | **Résumé quotidien** à 8h50 (mails, tâches, factures en retard, échéances, renouvellements) et **tableau de bord** adapté au rôle |
 
-Trois rôles : **Membre** (CRM, tâches, temps, congés, notes de frais), **Manager** (+ finances, équipe, documents, accès), **Administrateur** (+ réglages, intégrations, utilisateurs).
+Trois rôles : **Membre** (CRM, tâches, temps, notes de frais), **Manager** (+ finances, équipe, documents, accès), **Administrateur** (+ réglages, intégrations, utilisateurs).
 
 Tout est modifiable depuis l'interface (ajout/modification/suppression partout).
 
@@ -27,7 +27,7 @@ nano .env           # renseignez DOMAIN, BASE_URL, ADMIN_EMAIL, ADMIN_PASSWORD
 make up             # construit et lance tout (Docker)
 ```
 
-Ouvrez ensuite `https://<DOMAIN>` et connectez-vous. **Suite : [docs/CONFIGURATION.md](docs/CONFIGURATION.md)** (Outlook, Google, alertes… expliqué pas à pas) et [docs/IDEES.md](docs/IDEES.md) (idées d'évolutions).
+Ouvrez ensuite `https://<DOMAIN>` et connectez-vous. **Suite : [docs/CONFIGURATION.md](docs/CONFIGURATION.md)** (boîte mail, Google Drive, Qonto, alertes… expliqué pas à pas) et [docs/IDEES.md](docs/IDEES.md) (idées d'évolutions).
 
 En local sans domaine : `DOMAIN=localhost`, `BASE_URL=https://localhost` (Caddy fournit un certificat local ; le navigateur affichera un avertissement à accepter).
 
@@ -46,7 +46,7 @@ backend/app/
   models.py   tables SQLAlchemy ; le schéma est géré par Alembic (alembic/versions, appliqué au démarrage)
   routers/    API REST : auth, crm, billing, ops (abonnements, trésorerie, temps, équipe, fichiers), projects, alerts…
               (_common.py : fabrique de routes CRUD réutilisée par la plupart des modules)
-  services/   logique métier : billing (+PDF), treasury, renewals, digest, monitoring, security_watch, outlook, google_docs, taxes, alerts
+  services/   logique métier : billing (+PDF), treasury, renewals, digest, monitoring, security_watch, mail_imap, outlook, qonto, qonto_billing, expense_pdf, google_drive, taxes, alerts
   worker.py   tâches planifiées (sites chaque minute selon leur fréquence, mails /5 min, CVE 3h15, puis 8h30-8h50 : impôts, factures, renouvellements, résumé du jour)
 frontend/src/ pages React (une par module) + petit kit UI (ui.tsx)
 caddy/        reverse proxy

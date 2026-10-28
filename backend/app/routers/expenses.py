@@ -1,4 +1,5 @@
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, Response
@@ -10,7 +11,7 @@ from app.core.db import get_db
 from app.core.security import current_user
 from app.models import Expense, User
 from app.schemas import ExpenseIn, ExpenseOut
-from app.services import google_docs
+from app.services import expense_pdf, google_drive, integrations
 
 router = APIRouter(prefix="/expenses", tags=["notes de frais"])
 
@@ -75,22 +76,36 @@ def delete(expense_id: int, db: Session = Depends(get_db), _: User = Depends(cur
     db.commit()
 
 
-def _generate(db: Session, e: Expense) -> Response:
+def _push_to_drive(db: Session, e: Expense, pdf: bytes) -> str:
+    """Dépose le PDF dans Drive. Renvoie l'état pour l'interface : ok | not_configured | error:<message>."""
+    if not google_drive.is_configured(db):
+        return "not_configured"
     try:
-        pdf = google_docs.generate_pdf(db, e)
-    except google_docs.GoogleNotConfigured as exc:
-        raise HTTPException(400, str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(502, f"Génération du PDF impossible : {exc}") from exc
+        res = google_drive.upload_pdf(db, expense_pdf.filename(e), pdf, e.drive_file_id)
+    except (google_drive.DriveError, google_drive.GoogleNotConfigured) as exc:
+        return f"error:{exc}"
+    e.drive_file_id, e.drive_link = res.get("id", ""), res.get("webViewLink", "")
+    db.commit()
+    return "ok"
+
+
+def _generate(db: Session, e: Expense) -> Response:
+    pdf = expense_pdf.render_pdf(e, integrations.company_info(db))
     path = _pdf_dir() / f"note-de-frais-{e.id}.pdf"
     path.write_bytes(pdf)
     e.pdf_path = str(path)
     db.commit()
-    name = google_docs.placeholders(e)["numero"]
+    drive = _push_to_drive(db, e, pdf)
+    # Le PDF est toujours renvoyé, même si Drive échoue : l'état est transmis dans X-Drive-Status.
     return Response(
         pdf,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{name}.pdf"', "X-Expense-Id": str(e.id)},
+        headers={
+            "Content-Disposition": f'attachment; filename="{expense_pdf.filename(e)}"',
+            "X-Expense-Id": str(e.id),
+            "X-Drive-Status": quote(drive[:300]),
+            "Access-Control-Expose-Headers": "X-Expense-Id, X-Drive-Status",
+        },
     )
 
 
@@ -101,7 +116,7 @@ def save_and_download(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ):
-    """Bouton « Enregistrer » : sauvegarde la note, remplit le Google Doc et renvoie le PDF à télécharger."""
+    """Bouton « Enregistrer » : sauvegarde la note, génère le PDF, le dépose dans Drive et le renvoie."""
     e = db.get(Expense, expense_id) if expense_id else None
     if expense_id and not e:
         raise HTTPException(404)
@@ -118,6 +133,21 @@ def download(expense_id: int, db: Session = Depends(get_db), _: User = Depends(c
     e = db.get(Expense, expense_id)
     if not e or not e.pdf_path or not Path(e.pdf_path).exists():
         raise HTTPException(404, "Aucun PDF pour cette note")
-    return FileResponse(
-        e.pdf_path, media_type="application/pdf", filename=f"{google_docs.placeholders(e)['numero']}.pdf"
-    )
+    return FileResponse(e.pdf_path, media_type="application/pdf", filename=expense_pdf.filename(e))
+
+
+@router.post("/{expense_id}/drive", response_model=ExpenseOut)
+def retry_drive(expense_id: int, db: Session = Depends(get_db), _: User = Depends(current_user)):
+    """Renvoie dans Drive le PDF d'une note (après correction du réglage Google, par exemple)."""
+    e = db.get(Expense, expense_id)
+    if not e:
+        raise HTTPException(404)
+    pdf = expense_pdf.render_pdf(e, integrations.company_info(db))
+    status = _push_to_drive(db, e, pdf)
+    if status == "not_configured":
+        raise HTTPException(
+            400, "Google Drive n'est pas configuré (Paramètres > Intégrations > Google Drive)."
+        )
+    if status.startswith("error:"):
+        raise HTTPException(502, status[6:])
+    return _out(e)

@@ -39,52 +39,64 @@ Ouvrez un projet pour ajouter ses **serveurs** (hébergeur, IP, système…) et 
 
 ---
 
-## 3. Outlook (lire vos mails et les étiqueter)
+## 3. Boîte mail (lire vos mails et repérer ceux « à répondre »)
 
-À faire une seule fois sur <https://entra.microsoft.com> (compte administrateur Microsoft 365) :
+Votre messagerie est sur un serveur mail classique, celui qu'interroge l'application Outlook. Le Hub le lit en **IMAP** (le SMTP ne sert qu'à envoyer).
 
-1. **Identité → Applications → Inscriptions d'applications → Nouvelle inscription**.
-2. Nom : `Deva2 Hub`. Types de comptes : *« Comptes de cet annuaire uniquement »*.
-3. **URI de redirection** → type **Web** → saisissez `https://<votre-domaine>/api/mail/callback` (l'adresse exacte est aussi affichée dans la page *Mails Outlook* du Hub).
-4. Une fois créée, sur la page **Vue d'ensemble**, copiez :
-   - **ID d'application (client)** → champ « Microsoft – ID de l'application »
-   - **ID de l'annuaire (locataire)** → champ « Microsoft – ID de l'annuaire »
-5. **Certificats et secrets → Nouveau secret client** → copiez la **Valeur** (visible une seule fois) → champ « Microsoft – Secret client ».
-6. **Autorisations d'API → Ajouter une autorisation → Microsoft Graph → Déléguées** → cochez **`Mail.Read`** (et `User.Read`, `offline_access` s'ils ne sont pas déjà là) → *Accorder le consentement administrateur*.
-7. Dans le Hub : **Paramètres → Intégrations → Outlook**, collez les 3 valeurs, puis **Mails Outlook → Se connecter avec Microsoft**.
+**Retrouver les réglages dans Outlook** : *Fichier → Paramètres du compte → Paramètres du compte… → double-clic sur l'adresse → Plus de paramètres → Options avancées*. Vous y lisez le **serveur entrant (IMAP)** et son **port**. Sur le nouvel Outlook, ou si le compte est en POP, demandez ces informations à votre hébergeur.
 
-Le Hub est en **lecture seule** : il ne peut ni envoyer, ni supprimer, ni modifier de mails.
+| Hébergeur | Serveur IMAP | Port |
+|---|---|---|
+| OVHcloud (MX Plan) | `ssl0.ovh.net` | 993 |
+| IONOS | `imap.ionos.fr` | 993 |
+| Gandi | `mail.gandi.net` | 993 |
+| o2switch / cPanel | `mail.<votre-domaine>` | 993 |
 
-**Comment est décidé « À répondre » ?** Le mail vient d'un humain (pas `noreply`/newsletter), contient une demande ou une question (« ? », « pouvez-vous », « devis », « relance »…) et **vous n'avez pas déjà répondu** dans la conversation. Les mots « urgent », « dernier rappel »… passent le mail en **Urgent**. Vous pouvez corriger n'importe quel tag à la main.
+Dans le Hub : **Paramètres → Intégrations → Boîte mail (IMAP)**.
+- *Serveur IMAP* et *Port* : voir ci-dessus (993 = SSL, recommandé ; 143 = STARTTLS, accepté).
+- *Identifiant* : en général l'adresse e-mail complète ; *Mot de passe* : celui de la boîte (stocké chiffré, jamais réaffiché).
+- *Dossier des envoyés* : à laisser vide, il est détecté seul (« Sent », « Éléments envoyés »…). Renseignez-le seulement si le test dit qu'il est introuvable.
+- *Lien du webmail* : facultatif (ex. `https://www.ovh.com/fr/mail/`), il ajoute un bouton **Ouvrir le webmail** dans la page Mails.
+
+Cliquez **Tester la connexion** (« Connexion OK – N message(s)… »), puis **Mails → Actualiser**. Ensuite la boîte est relue **toutes les 5 minutes** (30 derniers jours).
+
+Le Hub est en **lecture seule** : il ne marque aucun mail comme lu, n'envoie, ne déplace ni ne supprime rien.
+
+**Comment est décidé « À répondre » ?** Le mail vient d'un humain (pas `noreply`/newsletter), contient une demande ou une question (« ? », « pouvez-vous », « devis », « relance »…) et **vous n'avez pas encore répondu**. Une réponse est détectée grâce au drapeau « répondu » qu'Outlook pose sur le mail, ou grâce au dossier des envoyés, ce qui couvre aussi les réponses faites depuis le téléphone. Les mots « urgent », « dernier rappel »… passent le mail en **Urgent**. Vous pouvez corriger n'importe quel tag à la main ; une fois la réponse envoyée, le mail repasse en « Traité » tout seul.
+
+### Annexe : boîte hébergée chez Microsoft 365
+Uniquement si votre messagerie est un vrai Microsoft 365 (Exchange Online), qui n'accepte plus l'IMAP par mot de passe. Laissez alors le groupe IMAP vide.
+
+1. <https://entra.microsoft.com> → **Identité → Applications → Inscriptions d'applications → Nouvelle inscription** (nom `Deva2 Hub`, *comptes de cet annuaire uniquement*).
+2. **URI de redirection** (Web) : `https://<votre-domaine>/api/mail/callback`.
+3. Copiez l'**ID d'application** et l'**ID de l'annuaire** ; créez un **secret client** (Certificats et secrets) et copiez sa valeur.
+4. **Autorisations d'API → Microsoft Graph → Déléguées** : `Mail.Read` (+ `User.Read`, `offline_access`) → consentement administrateur.
+5. **Paramètres → Intégrations → Microsoft 365**, collez les 3 valeurs, puis **Mails → Se connecter avec Microsoft**.
 
 ---
 
-## 4. Google (notes de frais → PDF)
+## 4. Google Drive (notes de frais en PDF)
 
-### a) Créer le modèle
-Créez un **Google Doc** « Modèle note de frais » avec votre mise en page, et placez dedans les champs suivants, **tels quels** (accolades comprises) :
+Le Hub génère lui-même le PDF de la note de frais (aucun modèle à créer). À chaque **Enregistrer**, le PDF est téléchargé sur votre poste **et** déposé dans Google Drive, dans **Deva2 › Administration › Comptabilité › Note de frais**. Si vous modifiez une note, le même fichier Drive est remplacé (pas de doublon).
 
-`{{numero}}` `{{date}}` `{{nom}}` `{{motif}}` `{{categorie}}` `{{projet}}` `{{moyen_paiement}}` `{{montant_ttc}}` `{{montant_ht}}` `{{tva}}` `{{taux_tva}}` `{{notes}}` `{{date_generation}}`
-
-Exemple : « Note de frais n° {{numero}} du {{date}} — Salarié : {{nom}} — Motif : {{motif}} — Total TTC : {{montant_ttc}} (dont TVA {{tva}}) ».
-
-Copiez l'**ID du Doc** : dans l'URL `https://docs.google.com/document/d/`**`CECI_EST_L_ID`**`/edit`.
-
-### b) Créer le « robot » Google
+### a) Créer le « robot » Google (une seule fois)
 1. <https://console.cloud.google.com> → créez un projet `deva2-hub`.
-2. **API et services → Bibliothèque** → activez **Google Docs API** et **Google Drive API**.
-3. **IAM et administration → Comptes de service → Créer** (nom : `deva2-hub`, pas de rôle nécessaire).
+2. **API et services → Bibliothèque** → activez **Google Drive API**.
+3. **IAM et administration → Comptes de service → Créer** (nom : `deva2-hub`, aucun rôle nécessaire).
 4. Ouvrez le compte de service → **Clés → Ajouter une clé → JSON** : un fichier `.json` se télécharge.
 5. Notez l'**adresse e-mail du compte de service** (`deva2-hub@…iam.gserviceaccount.com`).
-6. Dans Google Docs, **partagez le modèle** avec cette adresse (rôle *Lecteur*).
+
+### b) Donner accès au dossier « Note de frais »
+- **Le dossier doit être dans un Drive partagé** (Google Workspace : *Drive partagés*). Un compte de service n'a pas d'espace de stockage à lui : dans « Mon Drive », Google refuse le dépôt.
+- Ajoutez l'e-mail du compte de service comme membre du Drive partagé, avec le rôle **Gestionnaire de contenu** (ou partagez seulement le dossier « Note de frais » en **Éditeur**).
+- Ouvrez le dossier « Note de frais » et copiez la fin de l'URL : `https://drive.google.com/drive/folders/`**`CECI_EST_L_ID`**.
 
 ### c) Dans le Hub
-**Paramètres → Intégrations → Google** :
+**Paramètres → Intégrations → Google Drive (notes de frais)** :
 - *Clé du compte de service* : ouvrez le fichier `.json` et **collez tout son contenu** ;
-- *ID du modèle* : l'ID noté plus haut ;
-- *Dossier de sortie* : facultatif (dossier Drive partagé avec le compte de service, en mode Éditeur).
+- *ID du dossier « Note de frais »* : l'ID copié (l'URL complète du dossier est aussi acceptée).
 
-Cliquez **Tester la connexion** → « modèle trouvé ✅ ». Ensuite, **Notes de frais → Enregistrer et télécharger le PDF** fait tout : copie du modèle, remplissage, PDF téléchargé. Le Doc temporaire est supprimé de Google ; le PDF reste archivé dans le Hub (lien « PDF » dans l'historique).
+Cliquez **Tester la connexion** → « les notes de frais seront déposées dans « Note de frais » ». Si Google est indisponible ou mal réglé, le PDF est **quand même** téléchargé et archivé dans le Hub ; un message l'indique, et le bouton **Envoyer dans Drive** de l'historique permet de réessayer.
 
 ---
 
@@ -130,7 +142,11 @@ La recherche se fait par mot-clé : vérifiez toujours que votre version est con
 
 Le PDF contient déjà les mentions obligatoires usuelles (pénalités de retard, indemnité forfaitaire de 40 €). Faites valider le modèle par votre expert-comptable.
 
-**Comment marche la facturation ?**
+**Devis et factures faits dans Qonto ?** Si la clé API Qonto est renseignée (section 12), le Hub **importe vos devis et factures Qonto** toutes les heures (ou via **Devis & factures → Synchroniser Qonto**) : client (créé dans le CRM s'il n'existe pas), lignes, montants, statut, paiement et lien **Ouvrir dans Qonto**. Ces documents sont en lecture seule dans le Hub : on les crée et les modifie dans Qonto. Ils alimentent le CA, le reste à encaisser, les relances d'impayés et la prévision de trésorerie. Les boutons « + Devis / + Facture » du Hub disparaissent alors pour garder une seule numérotation.
+
+**Abonnements ↔ factures** : dans **Abonnements**, le bouton **Lier des factures** rattache à un abonnement (hébergement, nom de domaine…) les factures qui le concernent, par exemple sa refacturation au client.
+
+**Comment marche la facturation sans Qonto ?**
 1. *Devis & factures → + Devis* : choisissez le client, ajoutez des lignes (le total se calcule seul, TVA par taux). Enregistrez : c'est un **brouillon** modifiable, sans numéro.
 2. **Émettre** : le numéro définitif est attribué (`DEV-2026-0001`, `FAC-2026-0001`…, sans trou, par année). Une facture émise **ne peut plus être modifiée** (obligation légale) : pour corriger, on l'annule et on en crée une nouvelle.
 3. Devis accepté → **Transformer en facture** (les lignes sont recopiées).
@@ -139,8 +155,8 @@ Le PDF contient déjà les mentions obligatoires usuelles (pénalités de retard
 
 ## 9. Utilisateurs et rôles
 
-**Paramètres → Utilisateurs → + Utilisateur.** *Membre* : CRM, tâches, saisie de son temps, demande de congés, notes de frais. *Manager* : en plus, devis/factures, trésorerie, abonnements, équipe, documents, accès. *Administrateur* : en plus, réglages, intégrations et utilisateurs.
-Pour qu'un membre puisse poser des congés, créez sa fiche dans **Équipe → Collaborateurs** avec **le même e-mail que son compte**.
+**Paramètres → Utilisateurs → + Utilisateur.** *Membre* : CRM, tâches, saisie de son temps, notes de frais. *Manager* : en plus, devis/factures, trésorerie, abonnements, équipe, documents, accès. *Administrateur* : en plus, réglages, intégrations et utilisateurs.
+Pour que le temps passé d'un membre soit valorisé, créez sa fiche dans **Équipe → Collaborateurs** avec **le même e-mail que son compte**.
 
 ## 10. Page de statut publique
 
@@ -152,9 +168,9 @@ Rien à faire : au démarrage, la base existante est reconnue et migrée automat
 
 ---
 
-## 12. Banque Qonto (trésorerie automatique)
+## 12. Banque Qonto (trésorerie, devis et factures)
 
-Le Hub importe tout seul, **toutes les heures**, vos comptes Qonto, leurs soldes et les transactions réglées (les 90 derniers jours lors de la première synchronisation). Il ne fait que **lire** : aucun virement n'est possible depuis le Hub.
+Le Hub importe tout seul, **toutes les heures**, vos comptes Qonto, leurs soldes, les transactions réglées (les 90 derniers jours lors de la première synchronisation), ainsi que vos **devis et factures clients** (voir section 8). Il ne fait que **lire** : aucun virement n'est possible depuis le Hub.
 
 1. Connectez-vous à Qonto (application web) avec un compte **propriétaire ou administrateur**.
 2. **Paramètres → Intégrations et partenariats → Clé API** : notez l'**Identifiant** et la **Clé secrète**.
@@ -166,6 +182,7 @@ Le Hub importe tout seul, **toutes les heures**, vos comptes Qonto, leurs soldes
 - Le solde d'un compte Qonto est recalé à chaque synchronisation. Inutile de le modifier à la main.
 - Vos comptes saisis à la main (ou importés en CSV) restent utilisables à côté.
 - Si vous régénérez la clé chez Qonto, remettez-la dans le Hub.
+- « La clé API Qonto n'a pas accès aux devis/factures » : la clé doit appartenir à un propriétaire ou administrateur de l'organisation.
 
 ## Dépannage rapide
 
@@ -173,9 +190,11 @@ Le Hub importe tout seul, **toutes les heures**, vos comptes Qonto, leurs soldes
 |---|---|
 | Le site du Hub n'ouvre pas en HTTPS | Le DNS ne pointe pas encore vers le serveur, ou les ports 80/443 sont fermés (`make logs`) |
 | « Microsoft a refusé la connexion » | L'URI de redirection ne correspond pas **exactement** à celle affichée dans le Hub |
-| « Modèle introuvable » (Google) | Le Doc n'est pas partagé avec l'e-mail du compte de service |
+| « Dossier Drive introuvable » (Google) | Le dossier « Note de frais » n'est pas partagé avec l'e-mail du compte de service |
+| « pas d'espace de stockage » (Google) | Le dossier est dans « Mon Drive » : placez-le dans un Drive partagé |
+| « Le serveur IMAP refuse l'identifiant » | Mauvais mot de passe, ou identifiant différent de l'adresse e-mail : vérifiez dans Outlook |
+| « Serveur IMAP injoignable » | Nom du serveur ou port erroné (993 en SSL) |
 | Aucune alerte reçue | Aucun canal créé, ou seuil trop haut ; utilisez « Envoyer un test » |
-| « Aucune fiche collaborateur à votre e-mail » (congés) | Créez le collaborateur dans Équipe → Collaborateurs avec le même e-mail que son compte |
 | « Qonto refuse les identifiants » | Identifiant ou clé secrète erronés (ou clé régénérée chez Qonto) : recopiez-les dans Paramètres → Intégrations |
 | Le PDF de facture affiche « Votre société » | Complétez Paramètres → Intégrations → Ma société |
 | Un site de dev apparaît « Hors ligne » | Il renvoie 401/403 : renseignez le *code HTTP attendu* |

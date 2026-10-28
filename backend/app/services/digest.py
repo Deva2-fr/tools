@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from app.models import (
     Alert,
     BillingDoc,
-    LeaveRequest,
     MailMessage,
     Opportunity,
     Project,
@@ -103,11 +102,6 @@ def build(db: Session, today: date | None = None) -> list[str]:
     if soon:
         lines.append("🤝 Opportunités à conclure sous 7 jours : " + ", ".join(o.title for o in soon[:4]))
 
-    pending = (
-        db.scalar(select(func.count()).select_from(LeaveRequest).where(LeaveRequest.status == "pending")) or 0
-    )
-    if pending:
-        lines.append(f"🏖️ {pending} demande(s) de congés à valider")
     return lines
 
 

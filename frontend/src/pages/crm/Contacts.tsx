@@ -7,7 +7,7 @@ export default function Contacts() {
   return (
     <ResourcePage
       title="Contacts"
-      subtitle="Les personnes avec qui vous travaillez. Leurs mails Outlook apparaissent sur la fiche de leur société."
+      subtitle="Les personnes avec qui vous travaillez. Leurs mails apparaissent sur la fiche de leur société."
       endpoint="/crm/contacts"
       newLabel="Nouveau contact"
       exportName="contacts"

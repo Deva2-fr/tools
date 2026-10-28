@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime, timedelta
 from sqlalchemy import select
 
 from app.models import Alert, AlertChannel, Expense, Project, TaxDeadline, Technology, Vulnerability
-from app.services import google_docs, monitoring, outlook, security_watch, taxes
+from app.services import expense_pdf, monitoring, outlook, security_watch, taxes
 from app.services.alerts import create_alert
 
 
@@ -152,7 +152,7 @@ def test_mail_classification():
     assert outlook.is_urgent("URGENT", "")
 
 
-def test_google_placeholders_and_requests():
+def test_expense_pdf_is_generated_locally():
     e = Expense(
         id=7,
         expense_date=date(2026, 10, 1),
@@ -165,12 +165,8 @@ def test_google_placeholders_and_requests():
         vat_rate=20,
         amount_ht=100,
         amount_vat=20,
-        notes="",
+        notes="Aller-retour <Paris>",
     )
-    v = google_docs.placeholders(e)
-    assert v["numero"] == "NDF-202610-0007" and v["montant_ttc"] == "120,00 €" and v["taux_tva"] == "20 %"
-    reqs = google_docs.replace_requests(v)
-    assert {
-        "replaceAllText": {"containsText": {"text": "{{motif}}", "matchCase": True}, "replaceText": "Train"}
-    } in reqs
-    assert any(r["replaceAllText"]["replaceText"] == "—" for r in reqs)  # champ vide
+    assert expense_pdf.filename(e) == "NDF-202610-0007.pdf"
+    pdf = expense_pdf.render_pdf(e, {"company_name": "Deva2", "company_siret": "123"})
+    assert pdf.startswith(b"%PDF") and len(pdf) > 1500

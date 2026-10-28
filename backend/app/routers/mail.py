@@ -9,7 +9,7 @@ from app.core.db import get_db, utcnow
 from app.core.security import admin_user, current_user
 from app.models import MailMessage, User
 from app.schemas import MailOut, MailTagIn
-from app.services import integrations, outlook
+from app.services import integrations, mail_imap, mailbox, outlook
 
 router = APIRouter(prefix="/mail", tags=["mails"])
 
@@ -30,12 +30,16 @@ def _out(m: MailMessage) -> MailOut:
 
 @router.get("/status", dependencies=[Depends(current_user)])
 def status(db: Session = Depends(get_db)):
+    kind = mailbox.provider(db)
     return {
+        "provider": kind,
+        "connected": kind is not None,
+        "mailbox": mailbox.mailbox_address(db),
+        "webmail_url": integrations.get(db, "imap_webmail_url") if kind == "imap" else "",
+        # Microsoft 365 (optionnel)
         "configured": bool(
             integrations.get(db, "microsoft_client_id") and integrations.get(db, "microsoft_client_secret")
         ),
-        "connected": bool(integrations.get(db, "microsoft_refresh_token")),
-        "mailbox": integrations.get(db, "microsoft_mailbox"),
         "redirect_uri": outlook.redirect_uri(),
     }
 
@@ -82,7 +86,9 @@ def disconnect(db: Session = Depends(get_db)):
 @router.post("/sync", dependencies=[Depends(current_user)])
 def sync(db: Session = Depends(get_db)):
     try:
-        return {"new": outlook.sync_inbox(db)}
+        return {"new": mailbox.sync(db)}
+    except mail_imap.ImapError as exc:
+        raise HTTPException(400, str(exc)) from exc
     except Exception as exc:
         raise HTTPException(502, f"Synchronisation impossible : {exc}") from exc
 

@@ -1,12 +1,13 @@
-"""Abonnements, trésorerie, temps, équipe & congés, registre d'accès, documents."""
+"""Abonnements, trésorerie, temps, équipe, registre d'accès, documents."""
 
 import mimetypes
 import secrets
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -21,7 +22,6 @@ from app.models import (
     Company,
     Employee,
     FileRecord,
-    LeaveRequest,
     Subscription,
     TimeEntry,
     Transaction,
@@ -35,8 +35,6 @@ from app.schemas_ops import (
     BankAccountIn,
     ChecklistIn,
     EmployeeIn,
-    LeaveDecision,
-    LeaveIn,
     SubscriptionIn,
     TimeEntryIn,
     TransactionImport,
@@ -57,6 +55,7 @@ subs, _ = crud_router(
     search=("name", "vendor"),
     order_by=[Subscription.renewal_date.is_(None), Subscription.renewal_date],
     label=lambda o: o.name,
+    extra_out={"invoice_count": (int, 0)},
 )
 accounts, _ = crud_router(
     "/accounts",
@@ -125,6 +124,50 @@ def subscriptions_summary(db: Session = Depends(get_db)):
     for s in active:
         by_kind[s.kind] = round(by_kind.get(s.kind, 0) + renewals.annual_cost(s), 2)
     return {"annual_total": round(sum(by_kind.values()), 2), "by_kind": by_kind, "count": len(active)}
+
+
+class InvoiceLinks(BaseModel):
+    doc_ids: list[int] = Field(default_factory=list, max_length=500)
+
+
+def _linked(s: Subscription) -> list[dict]:
+    return [
+        {
+            "id": d.id,
+            "kind": d.kind,
+            "number": d.number,
+            "status": d.status,
+            "issue_date": d.issue_date,
+            "total_ttc": d.total_ttc,
+            "external_url": d.external_url,
+        }
+        for d in s.invoices
+    ]
+
+
+@router.get("/subscriptions/{sub_id}/invoices", dependencies=[Depends(manager_user)])
+def subscription_invoices(sub_id: int, db: Session = Depends(get_db)):
+    s = db.get(Subscription, sub_id)
+    if not s:
+        raise HTTPException(404)
+    return _linked(s)
+
+
+@router.put("/subscriptions/{sub_id}/invoices")
+def link_subscription_invoices(
+    sub_id: int, body: InvoiceLinks, db: Session = Depends(get_db), user: User = Depends(manager_user)
+):
+    s = db.get(Subscription, sub_id)
+    if not s:
+        raise HTTPException(404)
+    ids = set(body.doc_ids)
+    docs = db.scalars(select(BillingDoc).where(BillingDoc.id.in_(ids))).all() if ids else []
+    if len(docs) != len(ids):
+        raise HTTPException(400, "Facture introuvable")
+    s.invoices = list(docs)
+    db.commit()
+    audit(db, user.email, "subscription_invoices_linked", f"{s.name}: {len(docs)}")
+    return _linked(s)
 
 
 # ---------- Trésorerie ----------
@@ -270,149 +313,6 @@ def time_report(start: date | None = None, end: date | None = None, db: Session 
         )
     out.sort(key=lambda x: -x["hours"])
     return {"start": start, "end": end, "rows": out, "total_hours": round(sum(r["hours"] for r in out), 2)}
-
-
-# ---------- Congés ----------
-def business_days(start: date, end: date) -> float:
-    return float(sum(1 for i in range((end - start).days + 1) if (start + timedelta(days=i)).weekday() < 5))
-
-
-def _leave_out(db: Session, lr: LeaveRequest) -> dict:
-    emp = db.get(Employee, lr.employee_id)
-    return {
-        "id": lr.id,
-        "employee_id": lr.employee_id,
-        "employee": emp.name if emp else "?",
-        "start_date": lr.start_date,
-        "end_date": lr.end_date,
-        "days": lr.days,
-        "kind": lr.kind,
-        "status": lr.status,
-        "note": lr.note,
-        "decided_by": lr.decided_by,
-    }
-
-
-def _my_employee(db: Session, user: User) -> Employee | None:
-    return db.scalar(select(Employee).where(Employee.email == user.email))
-
-
-@router.get("/leaves")
-def list_leaves(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    q = select(LeaveRequest).order_by(LeaveRequest.start_date.desc()).limit(500)
-    if user.role == "member":
-        me = _my_employee(db, user)
-        q = q.where(LeaveRequest.employee_id == (me.id if me else -1))
-    return [_leave_out(db, lr) for lr in db.scalars(q)]
-
-
-@router.post("/leaves", status_code=201)
-def request_leave(body: LeaveIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    if user.role == "member":
-        emp = _my_employee(db, user)
-        if not emp:
-            raise HTTPException(
-                400, "Aucune fiche collaborateur à votre e-mail : demandez à un manager de la créer."
-            )
-    else:
-        emp = db.get(Employee, body.employee_id) if body.employee_id else _my_employee(db, user)
-        if not emp:
-            raise HTTPException(400, "Choisissez le collaborateur concerné.")
-    days = business_days(body.start_date, body.end_date)
-    if days <= 0:
-        raise HTTPException(400, "La période ne contient aucun jour ouvré.")
-    lr = LeaveRequest(
-        employee_id=emp.id,
-        start_date=body.start_date,
-        end_date=body.end_date,
-        days=days,
-        kind=body.kind,
-        note=body.note,
-    )
-    db.add(lr)
-    db.commit()
-    from app.services.alerts import create_alert
-
-    create_alert(
-        db,
-        "leave",
-        "info",
-        f"Demande de congés : {emp.name}",
-        f"Du {body.start_date:%d/%m} au {body.end_date:%d/%m} ({days:g} j ouvrés) – à valider dans Équipe.",
-    )
-    return _leave_out(db, lr)
-
-
-@router.post("/leaves/{leave_id}/decide")
-def decide_leave(
-    leave_id: int, body: LeaveDecision, user: User = Depends(manager_user), db: Session = Depends(get_db)
-):
-    lr = db.get(LeaveRequest, leave_id)
-    if not lr:
-        raise HTTPException(404)
-    lr.status, lr.decided_by = body.status, user.email
-    db.commit()
-    audit(db, user.email, f"leave_{body.status}", f"#{lr.id}")
-    return _leave_out(db, lr)
-
-
-@router.delete("/leaves/{leave_id}", status_code=204)
-def cancel_leave(leave_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    lr = db.get(LeaveRequest, leave_id)
-    me = _my_employee(db, user)
-    if not lr or (user.role == "member" and (not me or lr.employee_id != me.id or lr.status != "pending")):
-        raise HTTPException(404)
-    db.delete(lr)
-    db.commit()
-
-
-@router.get("/leaves/calendar")
-def leave_calendar(db: Session = Depends(get_db)):
-    """Visible par tous : qui est absent et quand (sans motif)."""
-    since = date.today() - timedelta(days=30)
-    q = (
-        select(LeaveRequest)
-        .where(LeaveRequest.status == "approved", LeaveRequest.end_date >= since)
-        .order_by(LeaveRequest.start_date)
-    )
-    return [
-        {
-            "employee": (db.get(Employee, lr.employee_id).name),
-            "start_date": lr.start_date,
-            "end_date": lr.end_date,
-        }
-        for lr in db.scalars(q)
-    ]
-
-
-@router.get("/leaves/balances", dependencies=[Depends(manager_user)])
-def leave_balances(db: Session = Depends(get_db)):
-    year = date.today().year
-    out = []
-    for e in db.scalars(
-        select(Employee).where(Employee.end_date.is_(None) | (Employee.end_date >= date.today()))
-    ):
-        used = sum(
-            lr.days
-            for lr in db.scalars(
-                select(LeaveRequest).where(
-                    LeaveRequest.employee_id == e.id,
-                    LeaveRequest.status == "approved",
-                    LeaveRequest.kind == "paid",
-                )
-            )
-            if lr.start_date.year == year
-        )
-        out.append(
-            {
-                "employee_id": e.id,
-                "name": e.name,
-                "allowance": e.leave_days_per_year,
-                "used": used,
-                "left": round(e.leave_days_per_year - used, 1),
-            }
-        )
-    return out
 
 
 # ---------- Documents (coffre de fichiers) ----------

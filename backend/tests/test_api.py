@@ -124,7 +124,7 @@ def test_taxes_generate_paid_recurrence_and_ics(client):
     assert ics.text.startswith("BEGIN:VCALENDAR") and "TVA janvier" in ics.text
 
 
-def test_expense_amounts_and_missing_google_config(client):
+def test_expense_pdf_without_google_drive(client):
     body = {
         "expense_date": "2026-10-01",
         "reason": "Train Paris",
@@ -135,7 +135,13 @@ def test_expense_amounts_and_missing_google_config(client):
     e = client.post("/api/expenses", json=body).json()
     assert e["amount_ht"] == 100.0 and e["amount_vat"] == 20.0
     r = client.post("/api/expenses/save", json=body)
-    assert r.status_code == 400 and "Google" in r.json()["detail"]
+    # Sans Google : le PDF est quand même généré et téléchargé, Drive est signalé « non configuré ».
+    assert r.status_code == 200 and r.content.startswith(b"%PDF")
+    assert r.headers["x-drive-status"] == "not_configured"
+    assert "NDF-202610-" in r.headers["content-disposition"]
+    eid = r.headers["x-expense-id"]
+    assert client.get(f"/api/expenses/{eid}/pdf").content.startswith(b"%PDF")
+    assert client.post(f"/api/expenses/{eid}/drive").status_code == 400
 
 
 def test_dashboard(client):

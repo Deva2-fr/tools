@@ -150,22 +150,16 @@ Au moins un canal, puis **Envoyer un test** :
 
 Bouton **Tester la connexion** → doit afficher ✅.
 
-### E. Mails Outlook (facultatif) — *Intégrations → Outlook*
+### E. Mails (facultatif) — *Intégrations → Boîte mail (IMAP)*
 
-À préparer sur <https://entra.microsoft.com> : **Inscriptions d'applications → Nouvelle inscription** :
-1. Nom `Deva2 Hub`, « Comptes de cet annuaire uniquement ».
-2. URI de redirection (type **Web**) : `https://localhost/api/mail/callback` (ou `https://<votre-domaine>/api/mail/callback`). L'adresse exacte est aussi affichée dans la page *Mails Outlook* du Hub.
-3. Copiez dans le Hub : **ID de l'application (client)**, **ID de l'annuaire (locataire)**.
-4. *Certificats et secrets → Nouveau secret client* → copiez la **Valeur** (visible une seule fois) dans « Secret client ».
-5. *Autorisations d'API → Microsoft Graph → Déléguées* : `Mail.Read`, `User.Read`, `offline_access` → *Accorder le consentement administrateur*.
-6. Dans le Hub : **Mails Outlook → Se connecter avec Microsoft**.
+Les mêmes réglages que dans Outlook (*Fichier → Paramètres du compte*) : **serveur IMAP** (ex. `ssl0.ovh.net`), **port 993**, **identifiant** (l'adresse e-mail) et **mot de passe**. *Tester la connexion*, puis **Mails → Actualiser**. Détails et hébergeurs courants : [CONFIGURATION.md, section 3](CONFIGURATION.md#3-boîte-mail-lire-vos-mails-et-repérer-ceux--à-répondre-). Microsoft 365 reste possible (annexe de la même section).
 
-### F. Notes de frais en PDF (facultatif) — *Intégrations → Google*
+### F. Notes de frais dans Google Drive (facultatif) — *Intégrations → Google Drive*
 
-1. Créez un **Google Doc modèle** avec les champs `{{numero}} {{date}} {{nom}} {{motif}} {{categorie}} {{projet}} {{moyen_paiement}} {{montant_ttc}} {{montant_ht}} {{tva}} {{taux_tva}} {{notes}} {{date_generation}}`.
-2. Sur <https://console.cloud.google.com> : nouveau projet → activez **Google Docs API** et **Google Drive API** → *Comptes de service* → créer → *Clés → Ajouter une clé → JSON* (un fichier se télécharge).
-3. **Partagez le Doc modèle** avec l'adresse e-mail du compte de service (rôle Lecteur).
-4. Dans le Hub : collez **tout le contenu du fichier JSON**, puis l'**ID du Doc** (la partie de l'URL entre `/d/` et `/edit`). *Tester la connexion* doit trouver le modèle.
+Le PDF est généré par le Hub ; Google sert seulement à le ranger dans **Deva2 › Administration › Comptabilité › Note de frais**.
+1. Sur <https://console.cloud.google.com> : nouveau projet → activez **Google Drive API** → *Comptes de service* → créer → *Clés → Ajouter une clé → JSON* (un fichier se télécharge).
+2. Le dossier « Note de frais » doit être dans un **Drive partagé** : ajoutez-y l'e-mail du compte de service comme **Gestionnaire de contenu** (ou partagez le dossier en **Éditeur**).
+3. Dans le Hub : collez **tout le contenu du fichier JSON**, puis l'**ID du dossier** (la fin de l'URL après `/folders/`). *Tester la connexion* doit trouver le dossier.
 
 ### G. Veille de failles (facultatif) — *Intégrations → Veille de sécurité*
 
@@ -174,10 +168,10 @@ Clé API NVD **gratuite** : <https://nvd.nist.gov/developers/request-an-api-key>
 ### H. Votre équipe — *Paramètres → Utilisateurs* puis *Équipe → Collaborateurs*
 
 1. **+ Utilisateur** : e-mail, mot de passe provisoire (12 caractères min.), rôle :
-   - **Membre** : CRM, tâches, temps, congés, notes de frais ;
+   - **Membre** : CRM, tâches, temps, notes de frais ;
    - **Manager** : + factures, trésorerie, abonnements, équipe, documents ;
    - **Administrateur** : + réglages et utilisateurs.
-2. **Collaborateurs** : une fiche par personne avec **le même e-mail que son compte** (nécessaire pour les congés et le calcul du temps) et son coût journalier.
+2. **Collaborateurs** : une fiche par personne avec **le même e-mail que son compte** (nécessaire pour le calcul du temps) et son coût journalier.
 
 ### I. Vos données métier
 
@@ -229,8 +223,8 @@ git pull && docker compose up -d --build   # mettre à jour
 | `port is already allocated` (80/443) | Un autre programme utilise ces ports : fermez-le |
 | La page ne s'ouvre pas | Attendez 1 à 2 minutes après le démarrage ; `docker compose ps` doit montrer `api` en `healthy` |
 | Connexion impossible avec mon mot de passe | `ADMIN_PASSWORD` n'est lu qu'à la **toute première** création de la base. Changez-le dans Paramètres → Mon compte, ou supprimez les données de test (`docker compose down -v`, **efface tout**) puis relancez |
-| « Microsoft a refusé la connexion » | L'URI de redirection chez Microsoft doit être **identique** à celle affichée dans *Mails Outlook* |
-| « Modèle introuvable » (Google) | Le Doc n'est pas partagé avec l'adresse e-mail du compte de service |
+| « Le serveur IMAP refuse l'identifiant » | Vérifiez identifiant et mot de passe dans Outlook (Fichier → Paramètres du compte) |
+| « Dossier Drive introuvable » (Google) | Le dossier « Note de frais » n'est pas partagé avec l'adresse e-mail du compte de service |
 | Aucune alerte reçue | Aucun canal créé, ou seuil trop haut : utilisez *Envoyer un test* |
 | Un site de dev apparaît « Hors ligne » | Il répond 401/403 : renseignez le « Code HTTP attendu » du projet |
 | Le PDF de facture affiche « Votre société » | Complétez *Intégrations → Ma société* (section 6.A) |

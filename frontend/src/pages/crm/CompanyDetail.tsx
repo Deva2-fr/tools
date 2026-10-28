@@ -93,8 +93,8 @@ export default function CompanyDetail() {
             {!d.activities.length && <Empty>Aucune activité enregistrée.</Empty>}
           </ul>
         </Card>
-        <Card title="Mails Outlook liés" className="lg:col-span-2">
-          {!d.mails.length ? <Empty>Aucun mail reçu de cette société (ou boîte Outlook non connectée).</Empty> : <ul className="divide-y divide-slate-100 text-sm">{d.mails.map((m) => (
+        <Card title="Mails liés" className="lg:col-span-2">
+          {!d.mails.length ? <Empty>Aucun mail reçu de cette société (ou boîte mail non connectée).</Empty> : <ul className="divide-y divide-slate-100 text-sm">{d.mails.map((m) => (
             <li key={m.id} className="flex items-center justify-between py-2.5"><span><b>{m.subject || "(sans objet)"}</b> <span className="text-slate-400">· {m.sender} · {fmtDateTime(m.received_at)}</span></span>
               <span className="flex items-center gap-3">{(m.tag === "a_repondre" || m.tag === "urgent") && <Badge tone="amber">À répondre</Badge>}{m.web_link && <a className="text-xs text-brand-600" href={m.web_link} target="_blank" rel="noreferrer noopener">Ouvrir ↗</a>}</span></li>))}</ul>}
         </Card>
