@@ -25,6 +25,7 @@ def _out(db: Session, d: BillingDoc) -> DocOut:
     out.company_name = db.get(Company, d.company_id).name if d.company_id else ""
     out.remaining = billing.remaining(d)
     out.is_overdue = billing.overdue(d)
+    out.qonto_editable = bool(qonto_billing.qonto_quote_id(d))
     return out
 
 
@@ -35,8 +36,16 @@ def _get(db: Session, doc_id: int) -> BillingDoc:
     return d
 
 
-def _editable(d: BillingDoc) -> BillingDoc:
+def _local(d: BillingDoc) -> BillingDoc:
+    """Statut, paiements, transformation : réservés aux documents gérés dans le Hub."""
     if d.provider == "qonto":
+        raise HTTPException(400, "Document Qonto : son statut et ses paiements se gèrent dans Qonto.")
+    return d
+
+
+def _editable(d: BillingDoc) -> BillingDoc:
+    """Contenu modifiable : documents du Hub, et devis Qonto encore en attente (reportés dans Qonto)."""
+    if d.provider == "qonto" and not qonto_billing.qonto_quote_id(d):
         raise HTTPException(
             400, "Document importé de Qonto : modifiez-le dans Qonto, il sera mis à jour ici."
         )
@@ -215,16 +224,39 @@ def get_doc(doc_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/{doc_id}", response_model=DocOut)
-def update(doc_id: int, body: DocIn, db: Session = Depends(get_db)):
-    return _out(db, _guard(billing.update_doc, db, _editable(_get(db, doc_id)), body))
+def update(doc_id: int, body: DocIn, db: Session = Depends(get_db), user: User = Depends(manager_user)):
+    d = _editable(_get(db, doc_id))
+    if d.provider != "qonto":
+        return _out(db, _guard(billing.update_doc, db, d, body))
+    # Devis lié à Qonto (en attente de validation) : la modification est reportée dans Qonto.
+    if body.kind != "quote":
+        raise HTTPException(400, "Le type de document ne peut pas être changé.")
+    with db.no_autoflush:
+        for k, v in body.model_dump(exclude={"lines", "kind"}).items():
+            setattr(d, k, v)
+        billing.set_lines(d, body.lines)
+        try:
+            qonto_billing.update_quote(db, d)
+        except qonto.QontoError as exc:
+            db.rollback()
+            raise HTTPException(400, str(exc)) from exc
+    audit(db, user.email, "quote_updated_in_qonto", d.number or str(doc_id))
+    return _out(db, d)
 
 
 @router.delete("/{doc_id}", status_code=204)
 def delete(doc_id: int, db: Session = Depends(get_db), user: User = Depends(manager_user)):
-    d = _editable(_get(db, doc_id))
-    if d.status != "draft":
+    d = _get(db, doc_id)
+    if d.provider == "qonto":
+        raise HTTPException(400, "Devis ou facture de Qonto : supprimez-le dans Qonto, il disparaîtra ici.")
+    # Un devis du Hub n'est qu'un brouillon de travail : supprimable tant qu'il n'est pas accepté.
+    deletable = d.status != "accepted" if d.kind == "quote" else d.status == "draft"
+    if not deletable:
         raise HTTPException(
-            400, "Seuls les brouillons peuvent être supprimés (un document émis garde son numéro)."
+            400,
+            "Devis accepté : il ne peut plus être supprimé."
+            if d.kind == "quote"
+            else "Seuls les brouillons peuvent être supprimés (une facture émise garde son numéro).",
         )
     db.delete(d)
     db.commit()
@@ -233,21 +265,28 @@ def delete(doc_id: int, db: Session = Depends(get_db), user: User = Depends(mana
 
 @router.post("/{doc_id}/issue", response_model=DocOut)
 def issue(doc_id: int, db: Session = Depends(get_db), user: User = Depends(manager_user)):
-    d = _guard(billing.issue, db, _editable(_get(db, doc_id)))
+    d = _local(_get(db, doc_id))
+    if d.kind == "quote":
+        raise HTTPException(
+            400,
+            "Les devis ne s'émettent pas dans le Hub : envoyez-le vers Qonto, "
+            "où il est numéroté puis envoyé au client.",
+        )
+    d = _guard(billing.issue, db, d)
     audit(db, user.email, f"{d.kind}_issued", d.number or "")
     return _out(db, d)
 
 
 @router.post("/{doc_id}/status", response_model=DocOut)
 def status(doc_id: int, body: StatusIn, db: Session = Depends(get_db), user: User = Depends(manager_user)):
-    d = _guard(billing.set_status, db, _editable(_get(db, doc_id)), body.status)
+    d = _guard(billing.set_status, db, _local(_get(db, doc_id)), body.status)
     audit(db, user.email, f"{d.kind}_{body.status}", d.number or "")
     return _out(db, d)
 
 
 @router.post("/{doc_id}/convert", response_model=DocOut, status_code=201)
 def convert(doc_id: int, db: Session = Depends(get_db), user: User = Depends(manager_user)):
-    inv = _guard(billing.convert_to_invoice, db, _editable(_get(db, doc_id)), user.email)
+    inv = _guard(billing.convert_to_invoice, db, _local(_get(db, doc_id)), user.email)
     audit(db, user.email, "quote_converted", str(doc_id))
     return _out(db, inv)
 
@@ -256,7 +295,7 @@ def convert(doc_id: int, db: Session = Depends(get_db), user: User = Depends(man
 def add_payment(
     doc_id: int, body: PaymentIn, db: Session = Depends(get_db), user: User = Depends(manager_user)
 ):
-    d = _editable(_get(db, doc_id))
+    d = _local(_get(db, doc_id))
     _guard(billing.add_payment, db, d, body.paid_on, body.amount, body.method, body.note)
     audit(db, user.email, "payment_added", f"{d.number}: {body.amount}")
     return _out(db, d)
@@ -266,7 +305,7 @@ def add_payment(
 def delete_payment(
     doc_id: int, payment_id: int, db: Session = Depends(get_db), user: User = Depends(manager_user)
 ):
-    d = _editable(_get(db, doc_id))
+    d = _local(_get(db, doc_id))
     p = next((x for x in d.payments if x.id == payment_id), None)
     if not p:
         raise HTTPException(404)

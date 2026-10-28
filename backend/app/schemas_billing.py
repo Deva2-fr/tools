@@ -68,6 +68,7 @@ class DocOut(BaseModel):
     is_overdue: bool = False
     provider: str = "manual"
     external_url: str = ""
+    qonto_editable: bool = False  # devis Qonto en attente : modifiable ici, reporté dans Qonto
     lines: list[LineOut] = []
     payments: list[PaymentOut] = []
     created_at: datetime

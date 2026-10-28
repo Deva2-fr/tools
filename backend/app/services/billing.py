@@ -48,7 +48,7 @@ def next_number(db: Session, kind: str, year: int) -> str:
     return f"{PREFIX[kind]}-{year}-{counter.value:04d}"
 
 
-def _set_lines(doc: BillingDoc, lines: list[LineIn]) -> None:
+def set_lines(doc: BillingDoc, lines: list[LineIn]) -> None:
     doc.lines.clear()
     for i, ln in enumerate(lines):
         doc.lines.append(BillingLine(position=i, **ln.model_dump()))
@@ -66,7 +66,7 @@ def create_doc(db: Session, data: DocIn, user_email: str) -> BillingDoc:
         doc.due_date = doc.issue_date + timedelta(days=integrations.terms_days(db))
     if doc.kind == "quote" and not doc.due_date:
         doc.due_date = doc.issue_date + timedelta(days=30)
-    _set_lines(doc, data.lines)
+    set_lines(doc, data.lines)
     db.add(doc)
     db.commit()
     return doc
@@ -79,7 +79,7 @@ def update_doc(db: Session, doc: BillingDoc, data: DocIn) -> BillingDoc:
         raise BillingError("Le type de document ne peut pas être changé.")
     for k, v in data.model_dump(exclude={"lines", "kind"}).items():
         setattr(doc, k, v)
-    _set_lines(doc, data.lines)
+    set_lines(doc, data.lines)
     db.commit()
     return doc
 

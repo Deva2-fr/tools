@@ -55,7 +55,7 @@ def test_numbering_is_sequential_without_gaps(client, acme):
     y = TODAY.year
     assert (n1, n2) == (f"FAC-{y}-0001", f"FAC-{y}-0002")
     q = client.post("/api/billing", json=doc("quote", company_id=acme)).json()["id"]
-    assert client.post(f"/api/billing/{q}/issue").json()["number"] == f"DEV-{y}-0001"  # compteur séparé
+    assert client.post(f"/api/billing/{q}/issue").status_code == 400  # devis : officiel dans Qonto seulement
 
 
 def test_issued_invoice_is_immutable_and_undeletable(client, acme):
@@ -100,10 +100,13 @@ def test_partial_then_full_payment(client, acme):
     )  # a des paiements
 
 
-def test_quote_to_invoice_once(client, acme):
+def test_quote_to_invoice_once(client, db, acme):
+    from app.models import BillingDoc
+
     q = client.post("/api/billing", json=doc("quote", company_id=acme)).json()["id"]
     assert client.post(f"/api/billing/{q}/convert").status_code == 400  # devis non émis
-    client.post(f"/api/billing/{q}/issue")
+    db.get(BillingDoc, q).status = "sent"  # devis émis avant que les devis passent par Qonto
+    db.commit()
     inv = client.post(f"/api/billing/{q}/convert")
     assert inv.status_code == 201
     body = inv.json()

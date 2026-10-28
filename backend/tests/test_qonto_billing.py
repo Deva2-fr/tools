@@ -87,7 +87,7 @@ def test_import_invoices_and_quotes(db):
     assert paid.provider == "qonto" and paid.status == "paid" and paid.kind == "invoice"
     assert (paid.total_ht, paid.total_vat, paid.total_ttc) == (1000.0, 200.0, 1200.0)
     assert paid.amount_paid == 1200.0 and paid.payments[0].paid_on.isoformat() == "2026-09-20"
-    assert paid.lines[0].vat_rate == 20 and paid.lines[0].description == "Maintenance – Septembre"
+    assert paid.lines[0].vat_rate == 20 and paid.lines[0].description == "Maintenance\nSeptembre"
     assert paid.external_url.endswith("/inv-1")
 
     unpaid = db.scalar(select(BillingDoc).where(BillingDoc.number == "F-2026-002"))
