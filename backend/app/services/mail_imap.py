@@ -297,6 +297,12 @@ def sync_inbox(db: Session, box: Mailbox, conn=None) -> int:
             row.preview = p["preview"]
             row.web_link = box.webmail_url.strip()
             _set_tags(row, address, p["answered"] or p["message_id"] in sent, p["is_read"])
+        if len(new) < NEW_PER_SYNC:
+            # Toute la boîte est à jour : une ligne restée sans numéro IMAP correspond à un mail
+            # qui n'est plus dans la boîte de réception (importé avant le suivi des numéros).
+            for r in rows:
+                if r.imap_uid is None:
+                    db.delete(r)
         box.last_synced_at, box.last_error = utcnow(), ""
         db.commit()
         return created
@@ -384,18 +390,42 @@ def full_content(raw: bytes) -> dict:
     }
 
 
-def fetch_raw(box: Mailbox, uid: int, conn=None) -> bytes:
-    """Mail complet depuis la boîte de réception (lecture seule : BODY.PEEK, rien n'est marqué lu)."""
+def find_uid(conn, message_id: str) -> int | None:
+    """UID d'un mail du dossier ouvert retrouvé par son Message-ID (ou « uid-N » sans Message-ID)."""
+    if message_id.startswith("uid-"):
+        return int(message_id[4:]) if message_id[4:].isdigit() else None
+    if not message_id or not message_id.isascii():
+        return None
+    quoted = '"' + message_id.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    typ, data = conn.uid("SEARCH", None, "HEADER", "Message-ID", quoted)
+    if typ != "OK" or not data or not data[0]:
+        return None
+    return int(data[0].split()[-1])
+
+
+def fetch_raw(box: Mailbox, uid: int | None, message_id: str = "", conn=None) -> tuple[int, bytes]:
+    """Mail complet depuis la boîte de réception (lecture seule : BODY.PEEK, rien n'est marqué lu).
+
+    Si le numéro IMAP est inconnu ou périmé, le mail est retrouvé par son Message-ID.
+    Renvoie (uid, contenu) pour que l'appelant mémorise le bon numéro.
+    """
     own = conn is None
     conn = conn or connect(box)
     try:
         typ, _ = conn.select("INBOX", readonly=True)
         if typ != "OK":
             raise ImapError("Impossible d'ouvrir la boîte de réception (INBOX).")
-        items = _fetch(conn, [str(uid).encode()], "(BODY.PEEK[])")
+        items = _fetch(conn, [str(uid).encode()], "(BODY.PEEK[])") if uid is not None else []
         if not items:
-            raise ImapError("Ce mail n'est plus sur le serveur (supprimé ou déplacé).")
-        return items[0][1]
+            found = find_uid(conn, message_id)
+            if found is not None and found != uid:
+                uid = found
+                items = _fetch(conn, [str(uid).encode()], "(BODY.PEEK[])")
+        if not items:
+            raise ImapError(
+                "Ce mail n'est plus sur le serveur (supprimé ou déplacé hors de la boîte de réception)."
+            )
+        return uid, items[0][1]
     finally:
         if own:
             _logout(conn)
