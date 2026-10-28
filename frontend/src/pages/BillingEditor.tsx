@@ -92,10 +92,13 @@ export default function BillingEditor() {
 
   const d = doc.data;
   const fromQonto = d?.provider === "qonto";
-  const editable = !fromQonto && (isNew || d?.status === "draft" || (d?.kind === "quote" && d?.status === "sent"));
+  // Devis Qonto encore en attente : modifiable ici, chaque enregistrement est reporté dans Qonto.
+  const qontoEdit = !!d?.qonto_editable;
+  const editable = qontoEdit || (!fromQonto && (isNew || d?.status === "draft" || (d?.kind === "quote" && d?.status === "sent")));
+  const isQuote = f.kind === "quote";
   const computed = useMemo(() => totals(lines), [lines]);
   // Document Qonto : on affiche les montants de Qonto (font foi), pas un recalcul.
-  const t = fromQonto && d ? { rows: [{ rate: -1, base: d.total_ht, vat: d.total_vat }], ht: d.total_ht, vat: d.total_vat, ttc: d.total_ttc } : computed;
+  const t = fromQonto && !qontoEdit && d ? { rows: [{ rate: -1, base: d.total_ht, vat: d.total_vat }], ht: d.total_ht, vat: d.total_vat, ttc: d.total_ttc } : computed;
   const body = () => ({ ...f, due_date: f.due_date || null, opportunity_id: null, lines });
   const inval = () => qc.invalidateQueries();
 
@@ -129,27 +132,28 @@ export default function BillingEditor() {
     <>
       <Link to="/facturation" className="text-sm text-slate-500 hover:text-brand-600">← Devis & factures</Link>
       <PageHeader title={isNew ? `Nouveau ${label.toLowerCase()}` : `${label} ${d?.number ?? "(brouillon)"}`}
-        subtitle={d ? undefined : "Remplissez puis enregistrez : vous pourrez ensuite l'émettre (un numéro lui sera attribué)."}
+        subtitle={d ? undefined : isQuote ? "Devis de travail : rien d'officiel ici. Améliorez-le avec l'IA, puis envoyez-le vers Qonto en brouillon." : "Remplissez puis enregistrez : vous pourrez ensuite l'émettre (un numéro lui sera attribué)."}
         action={d && <div className="flex flex-wrap items-center gap-2">
           <Badge tone={d.is_overdue ? "red" : STATUS[d.status]?.[1]}>{d.is_overdue ? "En retard" : STATUS[d.status]?.[0]}</Badge>
           {fromQonto ? (d.external_url ? <a className="inline-flex items-center rounded px-3 py-2 text-sm font-medium text-brand-600 ring-1 ring-slate-200 hover:bg-slate-50" href={d.external_url} target="_blank" rel="noreferrer noopener">Ouvrir dans Qonto ↗</a> : <Button variant="ghost" busy={pdf.isPending} onClick={() => pdf.mutate()}> Aperçu PDF</Button>)
             : <Button variant="ghost" busy={pdf.isPending} onClick={() => pdf.mutate()}> PDF</Button>}
+          {d.kind === "quote" && (!fromQonto || qontoEdit) && <Button variant="soft" onClick={() => setAiOpen(true)} disabled={!qontoSt.data?.ai_configured} title={qontoSt.data?.ai_configured ? undefined : "Renseignez la clé API Anthropic dans Paramètres → Intégrations → Assistant IA"}>✨ Améliorer avec l'IA</Button>}
           {!fromQonto && d.kind === "quote" && <>
-            <Button variant="soft" onClick={() => setAiOpen(true)} disabled={!qontoSt.data?.ai_configured} title={qontoSt.data?.ai_configured ? undefined : "Renseignez la clé API Anthropic dans Paramètres → Intégrations → Assistant IA"}>✨ Améliorer avec l'IA</Button>
             <Button busy={push.isPending} disabled={!qontoSt.data?.oauth_connected} title={qontoSt.data?.oauth_connected ? undefined : "Connectez Qonto : Paramètres → Intégrations → Banque Qonto → Se connecter avec Qonto"}
-              onClick={() => confirm("Créer ce devis dans Qonto ? Il y sera « en attente de validation » (modifiable, non envoyé au client) ; ensuite il se gère dans Qonto et se met à jour ici automatiquement.") && push.mutate()}>Envoyer vers Qonto</Button>
+              onClick={() => confirm("Envoyer ce devis vers Qonto en brouillon ? Il y sera « en attente de validation » : rien n'est envoyé au client. Vous pourrez encore le modifier ici (les changements sont reportés dans Qonto).") && push.mutate()}>Envoyer vers Qonto (brouillon)</Button>
           </>}
           {!fromQonto && <>
           {d.kind === "quote" && ["sent", "accepted"].includes(d.status) && <Button variant="soft" busy={convert.isPending} onClick={() => convert.mutate()}>→ Transformer en facture</Button>}
           {d.kind === "quote" && d.status === "sent" && <><Button variant="soft" onClick={() => accept.mutate()}>✓ Accepté</Button><Button variant="ghost" onClick={() => refuse.mutate()}>Refusé</Button></>}
           {d.kind === "invoice" && d.status === "sent" && !d.amount_paid && <Button variant="danger" onClick={() => confirm("Annuler cette facture ? Son numéro reste utilisé.") && cancel.mutate()}>Annuler la facture</Button>}
-          {d.status === "draft" && <Button variant="danger" onClick={() => confirm("Supprimer ce brouillon ?") && del.mutate()}>Supprimer</Button>}
+          {(d.status === "draft" || (d.kind === "quote" && d.status !== "accepted")) && <Button variant="danger" onClick={() => confirm(d.kind === "quote" ? "Supprimer ce devis ?" : "Supprimer ce brouillon ?") && del.mutate()}>Supprimer</Button>}
           </>}
         </div>} />
       {aiOpen && d && <AiImprove docId={d.id} current={{ title: f.title, notes: f.notes, lines }} onClose={() => setAiOpen(false)}
         onApply={(p) => { setF({ ...f, title: p.title, notes: p.notes }); setLines(p.lines.length ? p.lines : [blankLine()]); }} />}
       {d?.source_quote_id && <p className="mb-3 text-sm text-slate-500">Issue du <Link className="text-brand-600" to={`/facturation/${d.source_quote_id}`}>devis n°{d.source_quote_id}</Link></p>}
-      {fromQonto && <p className="mb-4 rounded bg-slate-100 px-3 py-2 text-sm text-slate-600">Document importé de Qonto : il se crée et se modifie dans Qonto (statut, paiement…) et se met à jour ici automatiquement toutes les heures.</p>}
+      {qontoEdit && <p className="mb-4 rounded bg-slate-100 px-3 py-2 text-sm text-slate-600">Devis en brouillon dans Qonto (en attente de validation) : vos modifications enregistrées ici sont reportées dans Qonto. La validation, l'envoi au client et la suppression se font dans Qonto.</p>}
+      {fromQonto && !qontoEdit && <p className="mb-4 rounded bg-slate-100 px-3 py-2 text-sm text-slate-600">Document importé de Qonto : il se crée et se modifie dans Qonto (statut, paiement…) et se met à jour ici automatiquement toutes les heures.</p>}
       {!editable && !fromQonto && <p className="mb-4 rounded bg-slate-100 px-3 py-2 text-sm text-slate-600"> Ce document est émis : il n'est plus modifiable (obligation légale). Pour corriger, annulez-le et créez-en un nouveau.</p>}
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <div className="space-y-6">
@@ -176,8 +180,8 @@ export default function BillingEditor() {
                   </div>
                 ))}
               </div>
-              {fromQonto && !lines.length && <p className="text-sm text-slate-400">Détail des lignes non fourni par Qonto : voir le document dans Qonto.</p>}
-              {!fromQonto && <><p className="mt-2 text-xs text-slate-400">Colonnes : désignation · quantité · prix unitaire HT · TVA</p>
+              {fromQonto && !qontoEdit && !lines.length && <p className="text-sm text-slate-400">Détail des lignes non fourni par Qonto : voir le document dans Qonto.</p>}
+              {editable && <><p className="mt-2 text-xs text-slate-400">Colonnes : désignation · quantité · prix unitaire HT · TVA</p>
               <Button type="button" variant="soft" className="mt-3" onClick={() => setLines((ls) => [...ls, blankLine()])}>+ Ajouter une ligne</Button></>}
             </fieldset>
             <div className="mt-5 ml-auto max-w-xs space-y-1 text-sm">
@@ -190,8 +194,8 @@ export default function BillingEditor() {
           <ErrorMsg error={errors} />
           {editable && (
             <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="ghost" busy={save.isPending} onClick={() => save.mutate()}> Enregistrer le brouillon</Button>
-              {!isNew && d?.status === "draft" && <Button busy={issue.isPending} onClick={() => confirm(`Émettre ce ${label.toLowerCase()} ? Un numéro définitif lui sera attribué et il ne sera plus modifiable.`) && issue.mutate()}> Émettre</Button>}
+              <Button variant={qontoEdit ? "primary" : "ghost"} busy={save.isPending} onClick={() => save.mutate()}>{qontoEdit ? "Enregistrer et mettre à jour Qonto" : isQuote ? "Enregistrer" : "Enregistrer le brouillon"}</Button>
+              {!isNew && !isQuote && d?.status === "draft" && <Button busy={issue.isPending} onClick={() => confirm(`Émettre ce ${label.toLowerCase()} ? Un numéro définitif lui sera attribué et il ne sera plus modifiable.`) && issue.mutate()}> Émettre</Button>}
             </div>
           )}
         </div>
@@ -211,7 +215,8 @@ export default function BillingEditor() {
               )}
             </Card>
           )}
-          {!fromQonto && <Card title="Aide"><p className="text-xs leading-relaxed text-slate-500">Le numéro est attribué à l'émission, sans trou, par type et par année (DEV-2026-0001, FAC-2026-0001). Les informations de votre société (SIRET, IBAN, mentions) sont à renseigner dans <b>Paramètres → Ma société</b> : elles figurent sur le PDF.</p></Card>}
+          {!fromQonto && isQuote && <Card title="Aide"><p className="text-xs leading-relaxed text-slate-500">Un devis du Hub est un brouillon de travail, sans valeur officielle : préparez-le, améliorez-le avec l'IA, puis envoyez-le vers Qonto. Il y sera numéroté, validé et envoyé au client. Tant qu'il est en attente dans Qonto, vous pouvez encore le modifier ici.</p></Card>}
+          {!fromQonto && !isQuote && <Card title="Aide"><p className="text-xs leading-relaxed text-slate-500">Le numéro est attribué à l'émission, sans trou, par type et par année (DEV-2026-0001, FAC-2026-0001). Les informations de votre société (SIRET, IBAN, mentions) sont à renseigner dans <b>Paramètres → Ma société</b> : elles figurent sur le PDF.</p></Card>}
         </div>
       </div>
     </>

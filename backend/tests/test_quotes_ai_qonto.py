@@ -108,6 +108,7 @@ class FakeQonto:
         self.clients = list(existing_clients)
         self.quote_status = quote_status
         self.posted: dict[str, list] = {"/v2/clients": [], "/v2/quotes": []}
+        self.patched: list[dict] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -117,6 +118,10 @@ class FakeQonto:
             body = json.loads(request.content)
             self.posted[path].append(body)
             return httpx.Response(201, json={"client": {"id": "cl-new", **body}})
+        if request.method == "PATCH" and path == "/v2/quotes/q-42":
+            body = json.loads(request.content)
+            self.patched.append(body)
+            return httpx.Response(200, json={"quote": self.quote(body)})
         if request.method == "POST" and path == "/v2/quotes":
             body = json.loads(request.content)
             self.posted[path].append(body)
@@ -124,34 +129,32 @@ class FakeQonto:
                 return httpx.Response(
                     self.quote_status, json={"errors": [{"detail": "expiry_date must be after issue_date"}]}
                 )
-            return httpx.Response(
-                201,
-                json={
-                    "quote": {
-                        "id": "q-42",
-                        "number": "D-2026-007",
-                        "status": "pending_approval",
-                        "issue_date": body["issue_date"],
-                        "expiry_date": body["expiry_date"],
-                        "quote_url": "https://pay.qonto.com/quotes/q-42",
-                        "terms_and_conditions": body.get("terms_and_conditions"),
-                        "header": body.get("header"),
-                        "total_amount": {"value": "3960.00"},
-                        "vat_amount": {"value": "660.00"},
-                        "client": {"name": "Formasyl", "vat_number": "FR12345678901"},
-                        "items": [
-                            {
-                                "title": i["title"],
-                                "quantity": i["quantity"],
-                                "unit_price": i["unit_price"],
-                                "vat_rate": i["vat_rate"],
-                            }
-                            for i in body["items"]
-                        ],
-                    }
-                },
-            )
+            return httpx.Response(201, json={"quote": self.quote(body)})
         return httpx.Response(404, json={})
+
+    @staticmethod
+    def quote(body):
+        return {
+            "id": "q-42",
+            "number": "D-2026-007",
+            "status": "pending_approval",
+            "issue_date": body["issue_date"],
+            "expiry_date": body["expiry_date"],
+            "quote_url": "https://pay.qonto.com/quotes/q-42",
+            "terms_and_conditions": body.get("terms_and_conditions"),
+            "header": body.get("header"),
+            "client": {"name": "Formasyl", "vat_number": "FR12345678901"},
+            "items": [
+                {
+                    "title": i["title"],
+                    "description": i.get("description"),
+                    "quantity": i["quantity"],
+                    "unit_price": i["unit_price"],
+                    "vat_rate": i["vat_rate"],
+                }
+                for i in body["items"]
+            ],
+        }
 
     def client(self, _db=None):
         return httpx.Client(base_url=qonto_oauth.API_URL, transport=httpx.MockTransport(self.handler))
@@ -184,12 +187,65 @@ def test_push_quote_to_qonto(client, db, monkeypatch):
         "unit_price": {"value": "25.00", "currency": "EUR"},
         "vat_rate": "0.20",
     }
-    # Devis désormais suivi depuis Qonto : lecture seule, pas de second envoi
+    assert doc["qonto_editable"] is True
+    # Pas de second envoi ; une modification faite dans le Hub est reportée dans Qonto.
     assert client.post(f"/api/billing/{q['id']}/push-qonto").status_code == 400
+    edit = {
+        "kind": "quote",
+        "company_id": doc["company_id"],
+        "title": "Site vitrine",
+        "issue_date": "2026-11-02",
+        "due_date": "2026-12-02",
+        "notes": "Acompte de 30 %.",
+        "lines": [
+            {
+                "description": "Développement\nPages et formulaire",
+                "quantity": 2,
+                "unit_price": 1500,
+                "vat_rate": 20,
+            }
+        ],
+    }
+    r = client.put(f"/api/billing/{q['id']}", json=edit)
+    assert r.status_code == 200, r.text
+    (patch,) = fake.patched
+    assert patch["header"] == "Site vitrine" and patch["terms_and_conditions"] == "Acompte de 30 %."
+    assert patch["items"] == [
+        {
+            "title": "Développement",
+            "description": "Pages et formulaire",
+            "quantity": "2",
+            "unit_price": {"value": "1500.00", "currency": "EUR"},
+            "vat_rate": "0.20",
+        }
+    ]
+    d = r.json()
     assert (
-        client.put(f"/api/billing/{q['id']}", json={"kind": "quote", "issue_date": "2026-11-02"}).status_code
-        == 400
+        d["title"] == "Site vitrine" and d["lines"][0]["description"] == "Développement\nPages et formulaire"
     )
+    assert d["total_ht"] == 3000  # recalculé depuis les lignes renvoyées par Qonto
+    # Statut et suppression se gèrent dans Qonto.
+    assert client.post(f"/api/billing/{q['id']}/status", json={"status": "accepted"}).status_code == 400
+    assert client.delete(f"/api/billing/{q['id']}").status_code == 400
+    # Devis validé dans Qonto : plus modifiable depuis le Hub.
+    db.get(BillingDoc, q["id"]).status = "accepted"
+    db.commit()
+    assert client.put(f"/api/billing/{q['id']}", json=edit).status_code == 400
+
+
+def test_hub_quotes_are_working_drafts(client, db):
+    """Devis du Hub : brouillon de travail, jamais émis ici, supprimable tant qu'il n'est pas accepté."""
+    q = make_quote(client)
+    assert client.post(f"/api/billing/{q['id']}/issue").status_code == 400
+    assert client.delete(f"/api/billing/{q['id']}").status_code == 204
+    old = make_quote(client, "Ancien client")
+    db.get(BillingDoc, old["id"]).status = "sent"  # devis émis avant le passage par Qonto
+    db.commit()
+    assert client.delete(f"/api/billing/{old['id']}").status_code == 204
+    done = make_quote(client, "Client signé")
+    db.get(BillingDoc, done["id"]).status = "accepted"
+    db.commit()
+    assert client.delete(f"/api/billing/{done['id']}").status_code == 400
 
 
 def test_push_reuses_existing_qonto_client_and_reports_errors(client, db, monkeypatch):

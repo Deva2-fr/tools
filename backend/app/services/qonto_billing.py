@@ -158,7 +158,7 @@ def _fill(db: Session, doc: BillingDoc, kind: str, item: dict) -> None:
 
     doc.lines.clear()
     for i, it in enumerate(item.get("items") or []):
-        title = " – ".join(x for x in (it.get("title"), it.get("description")) if x) or "Prestation"
+        title = "\n".join(x for x in (it.get("title"), it.get("description")) if x) or "Prestation"
         try:
             qty = float(it.get("quantity") or 1)
         except (TypeError, ValueError):
@@ -273,14 +273,14 @@ def _qonto_client_id(db: Session, c: httpx.Client, company: Company) -> str:
     return r["client"]["id"]
 
 
-def _write(c: httpx.Client, path: str, body: dict, label: str) -> dict:
+def _write(c: httpx.Client, path: str, body: dict, label: str, method: str = "POST") -> dict:
     try:
-        r = c.post(path, json=body)
+        r = c.request(method, path, json=body)
     except httpx.HTTPError as exc:
         raise QontoError("Qonto est momentanément injoignable.") from exc
     if r.status_code in (401, 403):
         raise QontoError(
-            "Qonto refuse la création : reconnectez Qonto (Paramètres > Intégrations > Banque Qonto > "
+            "Qonto refuse l'écriture : reconnectez Qonto (Paramètres > Intégrations > Banque Qonto > "
             "Se connecter avec Qonto) en acceptant les droits sur les devis et les clients."
         )
     if r.status_code >= 400:
@@ -293,50 +293,89 @@ def _write(c: httpx.Client, path: str, body: dict, label: str) -> dict:
     return r.json()
 
 
-def push_quote(db: Session, doc: BillingDoc, client: httpx.Client | None = None) -> BillingDoc:
-    """Crée le devis dans Qonto (statut « en attente » : modifiable, non envoyé au client), puis le
-    Hub le suit comme un devis Qonto (lecture seule, mis à jour à chaque synchronisation)."""
-    from datetime import timedelta
-
-    from app.services import qonto_oauth
-
-    if doc.kind != "quote" or doc.provider == "qonto":
-        raise QontoError("Seuls les devis créés dans le Hub peuvent être envoyés vers Qonto.")
+def _check_quote(db: Session, doc: BillingDoc) -> Company:
     company = db.get(Company, doc.company_id) if doc.company_id else None
     if not company:
         raise QontoError("Choisissez d'abord le client du devis.")
     if not doc.lines:
         raise QontoError("Le devis n'a aucune ligne.")
-    own = client is None
+    return company
+
+
+def _quote_body(db: Session, c: httpx.Client, doc: BillingDoc) -> dict:
+    """Devis du Hub au format de l'API Qonto (création comme modification)."""
+    from datetime import timedelta
+
+    company = _check_quote(db, doc)
+    items = []
+    for ln in doc.lines:
+        title, _, rest = ln.description.partition("\n")
+        items.append(
+            {
+                "title": title.strip()[:120] or "Prestation",
+                "description": rest.strip() or None,
+                "quantity": f"{ln.quantity:g}",
+                "unit_price": _money(ln.unit_price),
+                "vat_rate": _rate_str(ln.vat_rate),
+            }
+        )
+    body = {
+        "client_id": _qonto_client_id(db, c, company),
+        "issue_date": doc.issue_date.isoformat(),
+        "expiry_date": (doc.due_date or doc.issue_date + timedelta(days=30)).isoformat(),
+        "currency": "EUR",
+        "terms_and_conditions": doc.notes or "Devis valable jusqu'à la date d'expiration indiquée.",
+        "header": doc.title or None,
+        "items": [{k: v for k, v in it.items() if v is not None} for it in items],
+    }
+    return {k: v for k, v in body.items() if v is not None}
+
+
+def _oauth_client(db: Session) -> httpx.Client:
+    from app.services import qonto_oauth
+
     try:
-        c = client or qonto_oauth.client(db)
+        return qonto_oauth.client(db)
     except qonto_oauth.QontoOAuthError as exc:
         raise QontoError(str(exc)) from exc
+
+
+def qonto_quote_id(doc: BillingDoc) -> str | None:
+    """Identifiant Qonto d'un devis encore modifiable (en attente de validation), sinon None."""
+    if doc.kind == "quote" and doc.provider == "qonto" and doc.status == "sent":
+        if (doc.external_id or "").startswith("quote:"):
+            return doc.external_id.split(":", 1)[1]
+    return None
+
+
+def update_quote(db: Session, doc: BillingDoc, client: httpx.Client | None = None) -> BillingDoc:
+    """Reporte dans Qonto les modifications faites dans le Hub (devis en attente de validation)."""
+    qid = qonto_quote_id(doc)
+    if not qid:
+        raise QontoError("Ce devis Qonto est validé ou annulé : il ne se modifie plus.")
+    _check_quote(db, doc)
+    c = client or _oauth_client(db)
     try:
-        items = []
-        for ln in doc.lines:
-            title, _, rest = ln.description.partition("\n")
-            items.append(
-                {
-                    "title": title.strip()[:120] or "Prestation",
-                    "description": rest.strip() or None,
-                    "quantity": f"{ln.quantity:g}",
-                    "unit_price": _money(ln.unit_price),
-                    "vat_rate": _rate_str(ln.vat_rate),
-                }
-            )
-        body = {
-            "client_id": _qonto_client_id(db, c, company),
-            "issue_date": doc.issue_date.isoformat(),
-            "expiry_date": (doc.due_date or doc.issue_date + timedelta(days=30)).isoformat(),
-            "currency": "EUR",
-            "terms_and_conditions": doc.notes or "Devis valable jusqu'à la date d'expiration indiquée.",
-            "header": doc.title or None,
-            "items": [{k: v for k, v in it.items() if v is not None} for it in items],
-        }
-        quote = _write(c, "/quotes", {k: v for k, v in body.items() if v is not None}, "devis")["quote"]
+        quote = _write(c, f"/quotes/{qid}", _quote_body(db, c, doc), "devis", method="PATCH")["quote"]
     finally:
-        if own:
+        if client is None:
+            c.close()
+    _fill(db, doc, "quote", quote)
+    db.commit()
+    return doc
+
+
+def push_quote(db: Session, doc: BillingDoc, client: httpx.Client | None = None) -> BillingDoc:
+    """Crée le devis dans Qonto (statut « en attente » : brouillon modifiable, non envoyé au client).
+    Ensuite le Hub reste lié au devis Qonto : chaque modification enregistrée ici y est reportée."""
+    if doc.kind != "quote" or doc.provider == "qonto":
+        raise QontoError("Seuls les devis créés dans le Hub peuvent être envoyés vers Qonto.")
+    _check_quote(db, doc)
+    c = client or _oauth_client(db)
+    try:
+        quote = _write(c, "/quotes", _quote_body(db, c, doc), "devis")["quote"]
+    finally:
+        if client is None:
             c.close()
     doc.provider, doc.external_id = "qonto", f"quote:{quote['id']}"
     _fill(db, doc, "quote", quote)
