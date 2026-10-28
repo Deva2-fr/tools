@@ -37,12 +37,15 @@ export default function BillingEditor() {
     const d = doc.data;
     if (!d) return;
     setF({ kind: d.kind, company_id: d.company_id, contact_id: d.contact_id, title: d.title, issue_date: d.issue_date, due_date: d.due_date ?? "", notes: d.notes });
-    setLines(d.lines.length ? d.lines.map((l: Line) => ({ description: l.description, quantity: l.quantity, unit_price: l.unit_price, vat_rate: l.vat_rate })) : [blankLine()]);
+    setLines(d.lines.length || d.provider === "qonto" ? d.lines.map((l: Line) => ({ description: l.description, quantity: l.quantity, unit_price: l.unit_price, vat_rate: l.vat_rate })) : [blankLine()]);
   }, [doc.data]);
 
   const d = doc.data;
-  const editable = isNew || d?.status === "draft" || (d?.kind === "quote" && d?.status === "sent");
-  const t = useMemo(() => totals(lines), [lines]);
+  const fromQonto = d?.provider === "qonto";
+  const editable = !fromQonto && (isNew || d?.status === "draft" || (d?.kind === "quote" && d?.status === "sent"));
+  const computed = useMemo(() => totals(lines), [lines]);
+  // Document Qonto : on affiche les montants de Qonto (font foi), pas un recalcul.
+  const t = fromQonto && d ? { rows: [{ rate: -1, base: d.total_ht, vat: d.total_vat }], ht: d.total_ht, vat: d.total_vat, ttc: d.total_ttc } : computed;
   const body = () => ({ ...f, due_date: f.due_date || null, opportunity_id: null, lines });
   const inval = () => qc.invalidateQueries();
 
@@ -73,14 +76,18 @@ export default function BillingEditor() {
         subtitle={d ? undefined : "Remplissez puis enregistrez : vous pourrez ensuite l'émettre (un numéro lui sera attribué)."}
         action={d && <div className="flex flex-wrap items-center gap-2">
           <Badge tone={d.is_overdue ? "red" : STATUS[d.status]?.[1]}>{d.is_overdue ? "En retard" : STATUS[d.status]?.[0]}</Badge>
-          <Button variant="ghost" busy={pdf.isPending} onClick={() => pdf.mutate()}> PDF</Button>
+          {fromQonto ? (d.external_url ? <a className="inline-flex items-center rounded px-3 py-2 text-sm font-medium text-brand-600 ring-1 ring-slate-200 hover:bg-slate-50" href={d.external_url} target="_blank" rel="noreferrer noopener">Ouvrir dans Qonto ↗</a> : <Button variant="ghost" busy={pdf.isPending} onClick={() => pdf.mutate()}> Aperçu PDF</Button>)
+            : <Button variant="ghost" busy={pdf.isPending} onClick={() => pdf.mutate()}> PDF</Button>}
+          {!fromQonto && <>
           {d.kind === "quote" && ["sent", "accepted"].includes(d.status) && <Button variant="soft" busy={convert.isPending} onClick={() => convert.mutate()}>→ Transformer en facture</Button>}
           {d.kind === "quote" && d.status === "sent" && <><Button variant="soft" onClick={() => accept.mutate()}>✓ Accepté</Button><Button variant="ghost" onClick={() => refuse.mutate()}>Refusé</Button></>}
           {d.kind === "invoice" && d.status === "sent" && !d.amount_paid && <Button variant="danger" onClick={() => confirm("Annuler cette facture ? Son numéro reste utilisé.") && cancel.mutate()}>Annuler la facture</Button>}
           {d.status === "draft" && <Button variant="danger" onClick={() => confirm("Supprimer ce brouillon ?") && del.mutate()}>Supprimer</Button>}
+          </>}
         </div>} />
       {d?.source_quote_id && <p className="mb-3 text-sm text-slate-500">Issue du <Link className="text-brand-600" to={`/facturation/${d.source_quote_id}`}>devis n°{d.source_quote_id}</Link></p>}
-      {!editable && <p className="mb-4 rounded bg-slate-100 px-3 py-2 text-sm text-slate-600"> Ce document est émis : il n'est plus modifiable (obligation légale). Pour corriger, annulez-le et créez-en un nouveau.</p>}
+      {fromQonto && <p className="mb-4 rounded bg-slate-100 px-3 py-2 text-sm text-slate-600">Document importé de Qonto : il se crée et se modifie dans Qonto (statut, paiement…) et se met à jour ici automatiquement toutes les heures.</p>}
+      {!editable && !fromQonto && <p className="mb-4 rounded bg-slate-100 px-3 py-2 text-sm text-slate-600"> Ce document est émis : il n'est plus modifiable (obligation légale). Pour corriger, annulez-le et créez-en un nouveau.</p>}
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <div className="space-y-6">
           <Card title="Informations">
@@ -106,12 +113,13 @@ export default function BillingEditor() {
                   </div>
                 ))}
               </div>
-              <p className="mt-2 text-xs text-slate-400">Colonnes : désignation · quantité · prix unitaire HT · TVA</p>
-              <Button type="button" variant="soft" className="mt-3" onClick={() => setLines((ls) => [...ls, blankLine()])}>+ Ajouter une ligne</Button>
+              {fromQonto && !lines.length && <p className="text-sm text-slate-400">Détail des lignes non fourni par Qonto : voir le document dans Qonto.</p>}
+              {!fromQonto && <><p className="mt-2 text-xs text-slate-400">Colonnes : désignation · quantité · prix unitaire HT · TVA</p>
+              <Button type="button" variant="soft" className="mt-3" onClick={() => setLines((ls) => [...ls, blankLine()])}>+ Ajouter une ligne</Button></>}
             </fieldset>
             <div className="mt-5 ml-auto max-w-xs space-y-1 text-sm">
               <div className="flex justify-between"><span className="text-slate-500">Total HT</span><span>{fmtMoney(t.ht)}</span></div>
-              {t.rows.map((r) => <div key={r.rate} className="flex justify-between text-slate-500"><span>TVA {r.rate} %</span><span>{fmtMoney(r.vat)}</span></div>)}
+              {t.rows.map((r) => <div key={r.rate} className="flex justify-between text-slate-500"><span>{r.rate < 0 ? "TVA" : `TVA ${r.rate} %`}</span><span>{fmtMoney(r.vat)}</span></div>)}
               <div className="flex justify-between border-t pt-1 text-base font-bold"><span>Total TTC</span><span>{fmtMoney(t.ttc)}</span></div>
             </div>
           </Card>
@@ -128,8 +136,8 @@ export default function BillingEditor() {
           {d && d.kind === "invoice" && ["sent", "paid"].includes(d.status) && (
             <Card title="Paiements">
               <p className="mb-3 text-sm">Reste à payer : <b className={d.remaining ? "text-amber-600" : "text-emerald-800"}>{fmtMoney(d.remaining)}</b></p>
-              <ul className="mb-3 space-y-1 text-sm">{d.payments.map((p: Row) => <li key={p.id} className="flex justify-between"><span>{fmtDate(p.paid_on)} · {p.method}</span><span>{fmtMoney(p.amount)} <button className="ml-1 text-xs text-red-500" onClick={() => delPay.mutate(p.id)}>✕</button></span></li>)}</ul>
-              {d.remaining > 0 && (
+              <ul className="mb-3 space-y-1 text-sm">{d.payments.map((p: Row) => <li key={p.id} className="flex justify-between"><span>{fmtDate(p.paid_on)} · {p.method}</span><span>{fmtMoney(p.amount)} {!fromQonto && <button className="ml-1 text-xs text-red-500" onClick={() => delPay.mutate(p.id)}>✕</button>}</span></li>)}</ul>
+              {d.remaining > 0 && !fromQonto && (
                 <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); addPay.mutate(); }}>
                   <input type="date" value={pay.paid_on} onChange={(e) => setPay({ ...pay, paid_on: e.target.value })} />
                   <input type="number" step="0.01" required placeholder={`Montant (max ${d.remaining})`} value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} />
@@ -140,7 +148,7 @@ export default function BillingEditor() {
               )}
             </Card>
           )}
-          <Card title="Aide"><p className="text-xs leading-relaxed text-slate-500">Le numéro est attribué à l'émission, sans trou, par type et par année (DEV-2026-0001, FAC-2026-0001). Les informations de votre société (SIRET, IBAN, mentions) sont à renseigner dans <b>Paramètres → Ma société</b> : elles figurent sur le PDF.</p></Card>
+          {!fromQonto && <Card title="Aide"><p className="text-xs leading-relaxed text-slate-500">Le numéro est attribué à l'émission, sans trou, par type et par année (DEV-2026-0001, FAC-2026-0001). Les informations de votre société (SIRET, IBAN, mentions) sont à renseigner dans <b>Paramètres → Ma société</b> : elles figurent sur le PDF.</p></Card>}
         </div>
       </div>
     </>

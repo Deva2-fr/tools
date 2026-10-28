@@ -10,10 +10,10 @@ from app.core.db import SessionLocal
 from app.services import (
     billing,
     digest,
-    integrations,
+    mailbox,
     monitoring,
-    outlook,
     qonto,
+    qonto_billing,
     renewals,
     security_watch,
     taxes,
@@ -51,10 +51,10 @@ def job_cve(db):
     log.info("Veille CVE : %d nouvelle(s) alerte(s)", security_watch.scan_all(db))
 
 
-@safe("outlook")
+@safe("mails")
 def job_mail(db):
-    if integrations.get(db, "microsoft_refresh_token"):
-        outlook.sync_inbox(db)
+    if mailbox.provider(db):
+        mailbox.sync(db)
 
 
 @safe("echeances")
@@ -77,6 +77,8 @@ def job_renewals(db):
 def job_qonto(db):
     if qonto.is_configured(db):
         log.info("Qonto : %d nouvelle(s) transaction(s)", qonto.sync(db)["created"])
+        res = qonto_billing.sync(db)
+        log.info("Qonto : %d facture(s), %d devis", res["invoices"], res["quotes"])
 
 
 @safe("resume_quotidien")

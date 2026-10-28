@@ -129,39 +129,6 @@ def test_time_entries_scope_and_report(client, as_role):
     assert client.post("/api/time", json={"work_date": TODAY.isoformat(), "hours": 25}).status_code == 422
 
 
-def test_leaves_workflow(client, as_role):
-    member = as_role("member")
-    body = {"start_date": "2026-12-21", "end_date": "2026-12-28"}  # lun → lun : 6 jours ouvrés
-    assert member.post("/api/leaves", json=body).status_code == 400  # pas de fiche collaborateur
-    emp = client.post(
-        "/api/employees", json={"name": "Mem", "email": "member@test.fr", "leave_days_per_year": 25}
-    ).json()
-    lv = member.post("/api/leaves", json=body)
-    assert lv.status_code == 201 and lv.json()["days"] == 6 and lv.json()["status"] == "pending"
-    assert (
-        member.post("/api/leaves", json={"start_date": "2026-12-26", "end_date": "2026-12-27"}).status_code
-        == 400
-    )  # week-end
-    assert (
-        member.post("/api/leaves", json={"start_date": "2026-12-30", "end_date": "2026-12-01"}).status_code
-        == 422
-    )
-    assert (
-        member.post(f"/api/leaves/{lv.json()['id']}/decide", json={"status": "approved"}).status_code == 403
-    )
-    assert (
-        client.post(f"/api/leaves/{lv.json()['id']}/decide", json={"status": "approved"}).json()["decided_by"]
-        == "admin@test.fr"
-    )
-    assert client.get("/api/leaves/calendar").json()[0]["employee"] == "Mem"
-    assert member.get("/api/leaves/balances").status_code == 403
-    bal = client.get("/api/leaves/balances").json()[0]
-    assert bal["employee_id"] == emp["id"] and bal["used"] == 6 and bal["left"] == 19
-    assert (
-        member.delete(f"/api/leaves/{lv.json()['id']}").status_code == 404
-    )  # déjà validée : plus annulable par le membre
-
-
 def test_file_vault_security(client, as_role):
     pdf = ("a.pdf", b"%PDF-1.4 test", "application/pdf")
     r = client.post("/api/files", files={"file": pdf}, data={"name": "Kbis", "category": "legal"})

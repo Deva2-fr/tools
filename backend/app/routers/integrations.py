@@ -9,7 +9,7 @@ from app.core.db import get_db
 from app.core.security import admin_user
 from app.models import User
 from app.routers.auth import audit
-from app.services import google_docs, integrations, outlook, qonto
+from app.services import google_drive, integrations, mail_imap, outlook, qonto
 
 router = APIRouter(prefix="/integrations", tags=["intégrations"])
 
@@ -54,7 +54,7 @@ def set_field(key: str, body: ValueIn, admin: User = Depends(admin_user), db: Se
 def test_service(service: str, _: User = Depends(admin_user), db: Session = Depends(get_db)):
     try:
         if service == "google":
-            return {"message": google_docs.test_connection(db)}
+            return {"message": google_drive.test_connection(db)}
         if service == "outlook":
             outlook.access_token(db)
             return {"message": f"Connexion OK ({integrations.get(db, 'microsoft_mailbox')})"}
@@ -69,6 +69,8 @@ def test_service(service: str, _: User = Depends(admin_user), db: Session = Depe
                 if user := integrations.get(db, "smtp_user"):
                     s.login(user, integrations.get(db, "smtp_password"))
             return {"message": "Connexion SMTP OK"}
+        if service == "imap":
+            return {"message": mail_imap.test_connection(db)}
         if service == "qonto":
             return {"message": qonto.test_connection(db)}
         if service == "nvd":

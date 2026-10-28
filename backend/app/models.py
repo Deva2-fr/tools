@@ -186,6 +186,9 @@ class Expense(Base):
     amount_vat: Mapped[float] = mapped_column(Numeric(12, 2, asdecimal=False))
     notes: Mapped[str] = mapped_column(Text, default="")
     pdf_path: Mapped[str] = mapped_column(String(300), default="")
+    # PDF déposé dans Google Drive (Administration > Comptabilité > Note de frais)
+    drive_file_id: Mapped[str] = mapped_column(String(100), default="", server_default="")
+    drive_link: Mapped[str] = mapped_column(String(500), default="", server_default="")
     created_by: Mapped[str] = mapped_column(String(255), default="")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
@@ -351,6 +354,10 @@ class BillingDoc(Base):
     amount_paid: Mapped[float] = mapped_column(Numeric(12, 2, asdecimal=False), default=0)
     created_by: Mapped[str] = mapped_column(String(255), default="")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    # manual : créé dans le Hub ; qonto : importé de Qonto (lecture seule, se modifie dans Qonto)
+    provider: Mapped[str] = mapped_column(String(20), default="manual", server_default="manual")
+    external_id: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
+    external_url: Mapped[str] = mapped_column(String(500), default="", server_default="")
     lines: Mapped[list["BillingLine"]] = relationship(
         cascade="all, delete-orphan", order_by="BillingLine.position", back_populates="doc"
     )
@@ -396,6 +403,23 @@ class Subscription(Base):
     auto_renew: Mapped[bool] = mapped_column(Boolean, default=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[str] = mapped_column(Text, default="")
+    invoices: Mapped[list["BillingDoc"]] = relationship(
+        secondary="subscription_invoices", order_by="BillingDoc.issue_date.desc()"
+    )
+
+    @property
+    def invoice_count(self) -> int:
+        return len(self.invoices)
+
+
+class SubscriptionInvoice(Base):
+    """Lien abonnement ↔ facture (une facture peut couvrir plusieurs abonnements et inversement)."""
+
+    __tablename__ = "subscription_invoices"
+    subscription_id: Mapped[int] = mapped_column(
+        ForeignKey("subscriptions.id", ondelete="CASCADE"), primary_key=True
+    )
+    doc_id: Mapped[int] = mapped_column(ForeignKey("billing_docs.id", ondelete="CASCADE"), primary_key=True)
 
 
 # ======================= Trésorerie =======================
@@ -456,22 +480,7 @@ class Employee(Base):
     daily_cost: Mapped[float] = mapped_column(
         Numeric(8, 2, asdecimal=False), default=0
     )  # coût journalier chargé
-    leave_days_per_year: Mapped[float] = mapped_column(Numeric(5, 1, asdecimal=False), default=25)
     notes: Mapped[str] = mapped_column(Text, default="")
-
-
-class LeaveRequest(Base):
-    __tablename__ = "leave_requests"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id", ondelete="CASCADE"), index=True)
-    start_date: Mapped[date] = mapped_column(Date)
-    end_date: Mapped[date] = mapped_column(Date)
-    days: Mapped[float] = mapped_column(Numeric(5, 1, asdecimal=False))
-    kind: Mapped[str] = mapped_column(String(12), default="paid")  # paid|rtt|sick|unpaid
-    status: Mapped[str] = mapped_column(String(10), default="pending")  # pending|approved|refused
-    note: Mapped[str] = mapped_column(String(300), default="")
-    decided_by: Mapped[str] = mapped_column(String(255), default="")
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
 class ChecklistItem(Base):

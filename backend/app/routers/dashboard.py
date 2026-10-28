@@ -9,7 +9,6 @@ from app.core.security import current_user
 from app.models import (
     Alert,
     BillingDoc,
-    LeaveRequest,
     MailMessage,
     Opportunity,
     Project,
@@ -123,9 +122,5 @@ def dashboard(user: User = Depends(current_user), db: Session = Depends(get_db))
                 {"id": s.id, "name": s.name, "date": s.renewal_date, "cost": s.cost}
                 for s in renewals_soon[:5]
             ],
-            "leaves_pending": db.scalar(
-                select(func.count()).select_from(LeaveRequest).where(LeaveRequest.status == "pending")
-            )
-            or 0,
         }
     return data

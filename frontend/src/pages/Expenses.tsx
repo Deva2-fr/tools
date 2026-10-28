@@ -16,6 +16,7 @@ export default function Expenses({ user }: { user: User }) {
   const [f, setF] = useState(blank(user));
   const [editId, setEditId] = useState<number | null>(null);
   const [done, setDone] = useState("");
+  const [driveMsg, setDriveMsg] = useState("");
   const list = useQuery({ queryKey: ["expenses"], queryFn: () => api<Expense[]>("/expenses") });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
 
@@ -25,13 +26,15 @@ export default function Expenses({ user }: { user: User }) {
   const save = useMutation({
     mutationFn: () => postForPdf(`/expenses/save${editId ? `?expense_id=${editId}` : ""}`, { ...f, amount_ttc: ttc }),
     onSuccess: (r) => {
-      setDone(` Note enregistrée – « ${r.filename} » téléchargé.`);
+      setDone(`Note enregistrée – « ${r.filename} » téléchargé${r.drive === "ok" ? " et déposé dans Google Drive (Comptabilité › Note de frais)" : ""}.`);
+      setDriveMsg(r.drive === "not_configured" ? "Google Drive n'est pas configuré : le PDF n'a pas été déposé dans le Drive (Paramètres → Intégrations → Google Drive)." : r.drive.startsWith("error:") ? `Le PDF n'a pas pu être déposé dans Google Drive : ${r.drive.slice(6)}` : "");
       setEditId(null);
       setF(blank(user));
       qc.invalidateQueries({ queryKey: ["expenses"] });
     },
-    onError: () => setDone(""),
+    onError: () => { setDone(""); setDriveMsg(""); },
   });
+  const retry = useMutation({ mutationFn: (id: number) => api(`/expenses/${id}/drive`, "POST"), onSuccess: () => qc.invalidateQueries({ queryKey: ["expenses"] }) });
   const del = useMutation({ mutationFn: (id: number) => api(`/expenses/${id}`, "DELETE"), onSuccess: () => qc.invalidateQueries({ queryKey: ["expenses"] }) });
 
   const edit = (e: Expense) => {
@@ -43,7 +46,7 @@ export default function Expenses({ user }: { user: User }) {
 
   return (
     <>
-      <PageHeader title="Notes de frais" subtitle="Remplissez les champs, cliquez sur Enregistrer : le PDF se télécharge, rempli automatiquement." />
+      <PageHeader title="Notes de frais" subtitle="Remplissez les champs, cliquez sur Enregistrer : le PDF est généré, téléchargé et rangé dans Google Drive (Administration › Comptabilité › Note de frais)." />
       <Card title={editId ? `Modifier la note n°${editId}` : "Nouvelle note de frais"}>
         <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Date de la dépense *"><input type="date" required value={f.expense_date} onChange={(e) => set("expense_date", e.target.value)} /></Field>
@@ -67,6 +70,7 @@ export default function Expenses({ user }: { user: User }) {
           <div className="space-y-3 sm:col-span-2 lg:col-span-3">
             <ErrorMsg error={save.error} />
             {done && <p className="rounded border border-emerald-700/30 px-3 py-2 text-sm text-emerald-800">{done}</p>}
+            {driveMsg && <p className="rounded border border-amber-600/30 bg-amber-50 px-3 py-2 text-sm text-amber-800">{driveMsg}</p>}
             <div className="flex justify-end gap-2">
               {editId && <Button type="button" variant="ghost" onClick={() => { setEditId(null); setF(blank(user)); }}>Annuler la modification</Button>}
               <Button type="submit" busy={save.isPending}> Enregistrer et télécharger le PDF</Button>
@@ -75,6 +79,7 @@ export default function Expenses({ user }: { user: User }) {
         </form>
       </Card>
       <Card title="Historique" className="mt-6">
+        <ErrorMsg error={retry.error} />
         {list.isLoading ? <Loading /> : !list.data?.length ? <Empty>Aucune note de frais pour l'instant.</Empty> : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -86,6 +91,8 @@ export default function Expenses({ user }: { user: User }) {
                     <td className="text-right font-medium">{fmtMoney(e.amount_ttc)}</td><td className="text-right text-slate-500">{fmtMoney(e.amount_vat)}</td>
                     <td className="space-x-3 whitespace-nowrap text-right text-xs">
                       {e.has_pdf && <a className="text-brand-600" href={`/api/expenses/${e.id}/pdf`}>PDF</a>}
+                      {e.drive_link ? <a className="text-brand-600" href={e.drive_link} target="_blank" rel="noreferrer noopener">Drive ↗</a>
+                        : e.has_pdf && <button className="text-amber-700" disabled={retry.isPending} onClick={() => retry.mutate(e.id)} title="Le PDF n'est pas encore dans Google Drive">Envoyer dans Drive</button>}
                       <button className="text-brand-600" onClick={() => edit(e)}>Modifier</button>
                       <button className="text-red-600" onClick={() => confirm("Supprimer cette note ?") && del.mutate(e.id)}>Supprimer</button>
                     </td>

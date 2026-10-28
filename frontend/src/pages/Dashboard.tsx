@@ -11,7 +11,7 @@ interface Dash {
   mails_to_reply: number;
   tasks: { id: number; title: string; due_date: string | null; late: boolean }[];
   pipeline: { open_count: number; forecast: number };
-  finance: null | { invoiced_ht: number; outstanding: number; overdue: number; balance: number; renewals: { id: number; name: string; date: string; cost: number }[]; leaves_pending: number };
+  finance: null | { invoiced_ht: number; outstanding: number; overdue: number; balance: number; renewals: { id: number; name: string; date: string; cost: number }[] };
   taxes_upcoming: { id: number; title: string; due_date: string; days_left: number; amount: number | null }[];
 }
 
@@ -61,7 +61,6 @@ export default function Dashboard({ user }: { user: User }) {
                 {data.finance.renewals.map((r) => <li key={r.id} className="flex items-center justify-between py-2.5 text-sm"><span>{r.name}</span><span className="text-slate-500">{fmtDate(r.date)} · {fmtMoney(r.cost)}</span></li>)}
               </ul>
             )}
-            {data.finance.leaves_pending > 0 && <p className="mt-3 rounded bg-amber-50 px-3 py-2 text-sm text-amber-800"> {data.finance.leaves_pending} demande(s) de congés à valider · <Link className="underline" to="/equipe">Voir</Link></p>}
           </Card>
         ) : <Card title="Bienvenue"><p className="text-sm text-slate-500">Bonjour {user.name || user.email}  Retrouvez vos tâches, vos contacts et vos mails à répondre depuis le menu.</p></Card>}
         <Card title="Mes sites">

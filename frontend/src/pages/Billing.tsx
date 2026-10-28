@@ -1,8 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Row, api, downloadFile } from "../api";
-import { Badge, Button, Card, Empty, Loading, PageHeader, cx, fmtDate, fmtMoney } from "../ui";
+import { Badge, Button, Card, Empty, ErrorMsg, Loading, PageHeader, cx, fmtDate, fmtDateTime, fmtMoney } from "../ui";
 
 export const STATUS: Record<string, [string, "slate" | "blue" | "green" | "red" | "amber"]> = {
   draft: ["Brouillon", "slate"], sent: ["Émis", "blue"], accepted: ["Accepté", "green"], refused: ["Refusé", "red"], paid: ["Payée", "green"], cancelled: ["Annulée", "red"],
@@ -15,8 +15,8 @@ function Bars({ values }: { values: number[] }) {
   return (
     <div className="flex h-24 items-end gap-1.5">
       {values.map((v, i) => (
-        <div key={i} className="flex flex-1 flex-col items-center gap-1" title={`${months[i]} : ${fmtMoney(v)}`}>
-          <div className="w-full rounded-t bg-brand-500/80" style={{ height: `${Math.max((v / max) * 100, v > 0 ? 4 : 0)}%` }} />
+        <div key={i} className="flex h-full flex-1 flex-col items-center justify-end gap-1" title={`${months[i]} : ${fmtMoney(v)}`}>
+          <div className="w-full min-h-0 rounded-t bg-brand-500/80" style={{ height: `${Math.max((v / max) * 100, v > 0 ? 4 : 0)}%` }} />
           <span className="text-[10px] text-slate-400">{months[i]}</span>
         </div>
       ))}
@@ -31,14 +31,28 @@ export default function Billing() {
   const params = tab === "quote" ? "kind=quote" : tab === "invoice" ? "kind=invoice" : tab === "overdue" ? "status=overdue" : "";
   const list = useQuery({ queryKey: ["billing", tab, q], queryFn: () => api<Row[]>(`/billing?${params}&q=${encodeURIComponent(q)}`) });
   const sum = useQuery({ queryKey: ["billing-sum"], queryFn: () => api<Sum>("/billing/summary") });
+  const qc = useQueryClient();
+  const qonto = useQuery({ queryKey: ["billing-qonto"], queryFn: () => api<{ configured: boolean; last_synced_at: string | null }>("/billing/qonto") });
+  const sync = useMutation({ mutationFn: () => api<{ invoices: number; quotes: number; created: number }>("/billing/qonto/sync", "POST"), onSuccess: () => qc.invalidateQueries() });
+  const viaQonto = !!qonto.data?.configured;
   const s = sum.data;
   return (
     <>
-      <PageHeader title="Devis & factures" subtitle="Créez, émettez et suivez vos devis et factures. Numérotation continue automatique, PDF prêt à envoyer."
+      <PageHeader title="Devis & factures" subtitle={viaQonto ? "Vos devis et factures Qonto, importés automatiquement : CA, encaissements, retards et relances." : "Créez, émettez et suivez vos devis et factures. Numérotation continue automatique, PDF prêt à envoyer."}
         action={<div className="flex gap-2">
           <Button variant="ghost" onClick={() => downloadFile("/billing/export/csv", "devis-factures.csv")}>Export comptable (CSV)</Button>
+          {viaQonto ? <Button busy={sync.isPending} onClick={() => sync.mutate()}>Synchroniser Qonto</Button> : <>
           <Button variant="soft" onClick={() => nav("/facturation/nouveau?kind=quote")}>+ Devis</Button>
-          <Button onClick={() => nav("/facturation/nouveau?kind=invoice")}>+ Facture</Button></div>} />
+          <Button onClick={() => nav("/facturation/nouveau?kind=invoice")}>+ Facture</Button></>}</div>} />
+      {qonto.data && (
+        <p className="mb-4 text-sm text-slate-500">
+          {viaQonto
+            ? <>Qonto connecté{qonto.data.last_synced_at ? <> · dernière synchronisation {fmtDateTime(qonto.data.last_synced_at)}</> : " · pas encore synchronisé"} · les devis et factures se créent dans Qonto et arrivent ici toutes les heures.</>
+            : <>Vos devis et factures sont dans Qonto ? Renseignez la clé API dans <b>Paramètres → Intégrations → Banque Qonto</b> pour les importer automatiquement.</>}
+          {sync.data && <span className="text-emerald-800"> · {sync.data.invoices} facture(s) et {sync.data.quotes} devis à jour.</span>}
+        </p>
+      )}
+      <div className="mb-4"><ErrorMsg error={sync.error} /></div>
       {s && (
         <div className="mb-6 grid gap-px overflow-hidden rounded-md border border-slate-300 bg-slate-300 lg:grid-cols-[1fr_1fr_1fr_1fr_1.5fr]">
           {([["Facturé " + s.year + " (HT)", fmtMoney(s.invoiced_ht), ""], ["Encaissé " + s.year, fmtMoney(s.collected), "text-emerald-800"], ["Reste à encaisser", fmtMoney(s.outstanding), s.outstanding ? "text-amber-700" : ""],
@@ -61,7 +75,7 @@ export default function Billing() {
             <tbody className="divide-y divide-slate-100">
               {list.data.map((d) => (
                 <tr key={d.id} className="hover:bg-slate-50">
-                  <td className="py-2.5"><Link className="font-medium text-brand-600" to={`/facturation/${d.id}`}>{d.number ?? "Brouillon"}</Link>{d.title && <span className="block text-xs text-slate-400">{d.title}</span>}</td>
+                  <td className="py-2.5"><Link className="font-medium text-brand-600" to={`/facturation/${d.id}`}>{d.number ?? "Brouillon"}</Link>{d.provider === "qonto" && <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Qonto</span>}{d.title && <span className="block text-xs text-slate-400">{d.title}</span>}</td>
                   <td>{d.kind === "quote" ? "Devis" : "Facture"}</td><td>{d.company_name || "—"}</td><td>{fmtDate(d.issue_date)}</td><td>{fmtDate(d.due_date)}</td>
                   <td className="text-right font-medium">{fmtMoney(d.total_ttc)}</td><td className="text-right">{d.remaining ? fmtMoney(d.remaining) : "—"}</td>
                   <td className="pl-4">{d.is_overdue ? <Badge tone="red">En retard</Badge> : <Badge tone={STATUS[d.status]?.[1]}>{STATUS[d.status]?.[0] ?? d.status}</Badge>}</td>

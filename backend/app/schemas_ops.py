@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 
 class SubscriptionIn(BaseModel):
@@ -54,26 +54,7 @@ class EmployeeIn(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     daily_cost: float = Field(0, ge=0, lt=100_000)
-    leave_days_per_year: float = Field(25, ge=0, le=366)
     notes: str = ""
-
-
-class LeaveIn(BaseModel):
-    employee_id: int | None = None  # ignoré pour un membre : on utilise son propre profil
-    start_date: date
-    end_date: date
-    kind: Literal["paid", "rtt", "sick", "unpaid"] = "paid"
-    note: str = ""
-
-    @model_validator(mode="after")
-    def _order(self):
-        if self.end_date < self.start_date:
-            raise ValueError("La date de fin précède la date de début")
-        return self
-
-
-class LeaveDecision(BaseModel):
-    status: Literal["approved", "refused"]
 
 
 class ChecklistIn(BaseModel):

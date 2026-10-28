@@ -66,6 +66,8 @@ class DocOut(BaseModel):
     amount_paid: float
     remaining: float = 0
     is_overdue: bool = False
+    provider: str = "manual"
+    external_url: str = ""
     lines: list[LineOut] = []
     payments: list[PaymentOut] = []
     created_at: datetime

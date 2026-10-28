@@ -193,6 +193,7 @@ class ExpenseOut(ExpenseIn, ORM):
     amount_ht: float
     amount_vat: float
     has_pdf: bool = False
+    drive_link: str = ""
     created_at: datetime
 
 
