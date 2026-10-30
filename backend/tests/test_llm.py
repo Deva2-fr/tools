@@ -146,7 +146,7 @@ def test_missing_key_and_network_error_and_async(db):
     def boom(request):
         raise httpx.ConnectError("down")
 
-    with pytest.raises(llm.LLMError, match="injoignable"):
+    with pytest.raises(llm.LLMError, match=r"interrompue \(ConnectError\)"):
         llm.generate(db, [llm.user("x")], transport=httpx.MockTransport(boom))
 
     import asyncio
@@ -223,11 +223,6 @@ def test_not_found_lists_available_models(keyed):
         llm.generate(keyed, [llm.user("x")], transport=httpx.MockTransport(handler))
 
 
-def test_connection_test_names_the_model(keyed, monkeypatch):
-    monkeypatch.setattr(llm, "generate", lambda db, c, **kw: llm.Result(text="OK", model="gemini-3.5-flash"))
-    assert "gemini-3.5-flash" in llm.test_connection(keyed)
-
-
 def sse(*chunks):
     return "".join(f"data: {json.dumps(c)}\r\n\r\n" for c in chunks).encode()
 
@@ -301,3 +296,46 @@ def test_stream_errors_are_readable(keyed):
 
     with pytest.raises(llm.LLMError, match="Quota"):
         asyncio.run(run())
+
+
+def test_network_failures_are_told_apart(keyed):
+    import asyncio
+
+    def timeout(request):
+        raise httpx.ReadTimeout("slow")
+
+    def cut(request):
+        raise httpx.ReadError("reset")
+
+    with pytest.raises(llm.NetworkError, match=r"n'a pas répondu en 30 s"):
+        llm.generate(keyed, [llm.user("x")], timeout=30, transport=httpx.MockTransport(timeout))
+    with pytest.raises(llm.NetworkError, match="interrompue \\(ReadError\\)") as info:
+        llm.generate(keyed, [llm.user("x")], transport=httpx.MockTransport(cut))
+    assert info.value.started is False
+
+    async def run():
+        return [i async for i in llm.astream(keyed, [llm.user("x")], transport=httpx.MockTransport(timeout))]
+
+    with pytest.raises(llm.NetworkError, match="n'a pas répondu") as info:
+        asyncio.run(run())
+    assert info.value.started is False and isinstance(info.value, llm.LLMError)
+
+
+def test_connection_reports_both_calls(keyed, monkeypatch):
+    monkeypatch.setattr(llm, "generate", lambda db, c, **kw: llm.Result(text="OK", model="gemini-3.5-flash"))
+
+    async def fake_stream(db, c, **kw):
+        yield ("text", "OK")
+        yield ("result", llm.Result(text="OK", model="gemini-3.5-flash"))
+
+    monkeypatch.setattr(llm, "astream", fake_stream)
+    msg = llm.test_connection(keyed)
+    assert "gemini-3.5-flash" in msg and "appel" in msg and "flux" in msg
+
+    async def broken(db, c, **kw):
+        raise llm.NetworkError("Connexion à Gemini interrompue (ReadError) : réessayez.")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(llm, "astream", broken)
+    with pytest.raises(llm.LLMError, match="le flux échoue"):
+        llm.test_connection(keyed)

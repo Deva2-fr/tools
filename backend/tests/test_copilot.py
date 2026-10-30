@@ -143,3 +143,27 @@ def test_copilot_gives_up_after_the_deadline(client, db, monkeypatch):
     assert (
         any(e["type"] == "error" and "trop de temps" in e["message"] for e in ev) and ev[-1]["type"] == "done"
     )
+
+
+def test_copilot_falls_back_to_plain_call_when_stream_fails(client, db, monkeypatch):
+    integrations.put(db, "gemini_api_key", "AIza-test")
+    fake = FakeLLM(monkeypatch, turns=[{"text": "Réponse sans flux."}])
+
+    async def cut(*a, **kw):
+        raise llm.NetworkError("Connexion à Gemini interrompue (ReadError) : réessayez.", started=False)
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(llm, "astream", cut)
+    ev = events(client.post("/api/copilot/chat", json={"message": "Bonjour"}))
+    assert "".join(e["text"] for e in ev if e["type"] == "text") == "Réponse sans flux."
+    assert ev[-1]["type"] == "done" and not any(e["type"] == "error" for e in ev)
+    assert len(fake.calls) == 1
+
+    async def cut_midway(*a, **kw):
+        yield ("text", "Début")
+        raise llm.NetworkError("Connexion à Gemini interrompue (ReadError) : réessayez.", started=True)
+
+    monkeypatch.setattr(llm, "astream", cut_midway)
+    ev = events(client.post("/api/copilot/chat", json={"message": "Encore"}))
+    assert any(e["type"] == "error" and "interrompue" in e["message"] for e in ev)
+    assert len(fake.calls) == 1  # pas de repli une fois la réponse commencée

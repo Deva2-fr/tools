@@ -8,6 +8,7 @@ d'outils demandés, raison de fin et jetons consommés. Les erreurs sont des `LL
 import asyncio
 import base64
 import json
+import logging
 import re
 import time
 from dataclasses import dataclass, field
@@ -17,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.services import integrations
 
+logger = logging.getLogger(__name__)
 API = "https://generativelanguage.googleapis.com/v1beta/models"
 DEFAULT_MODEL = "gemini-3.5-flash"  # secours si la liste des modèles de la clé est injoignable
 TIMEOUT = 120
@@ -27,6 +29,14 @@ PRICE_IN, PRICE_OUT = 0.30 / 1_000_000, 2.50 / 1_000_000
 
 class LLMError(RuntimeError):
     """Erreur affichable telle quelle."""
+
+
+class NetworkError(LLMError):
+    """Échec réseau vers Gemini ; `started` : des morceaux de réponse avaient déjà été reçus."""
+
+    def __init__(self, message: str, started: bool = False):
+        super().__init__(message)
+        self.started = started
 
 
 class ModelNotFound(LLMError):
@@ -48,6 +58,29 @@ class Result:
     tokens_in: int = 0
     tokens_out: int = 0
     model: str = ""  # modèle réellement utilisé
+
+
+def _timeout(read: float) -> httpx.Timeout:
+    # `read` = attente maximale entre deux morceaux de réponse, pas durée totale de l'appel.
+    return httpx.Timeout(connect=10, write=30, read=read, pool=10)
+
+
+def _net_error(exc: httpx.HTTPError, model_id: str, read: float, started: bool, t0: float) -> NetworkError:
+    """Message précis (délai ou coupure) + trace serveur ; le type exact aide à diagnostiquer."""
+    took = time.monotonic() - t0
+    logger.warning(
+        "Gemini %s : %s (%s) après %.1fs, réponse commencée : %s",
+        model_id,
+        type(exc).__name__,
+        exc,
+        took,
+        started,
+    )
+    if isinstance(exc, httpx.TimeoutException):
+        return NetworkError(
+            f"Gemini n'a pas répondu en {read:.0f} s (modèle {model_id}) : réessayez.", started
+        )
+    return NetworkError(f"Connexion à Gemini interrompue ({type(exc).__name__}) : réessayez.", started)
 
 
 def configured(db: Session) -> bool:
@@ -302,15 +335,18 @@ def generate(
     tools: list[dict] | None = None,
     schema: dict | None = None,
     max_tokens: int = 8000,
+    fast: bool = False,
+    timeout: float = TIMEOUT,
     transport: httpx.BaseTransport | None = None,
 ) -> Result:
     model_id = None
     for attempt in range(2):
         url, headers, body, model_id = _request(
-            db, system, contents, tools, schema, max_tokens, model_id, transport
+            db, system, contents, tools, schema, max_tokens, model_id, transport, fast
         )
+        t0 = time.monotonic()
         try:
-            with httpx.Client(timeout=TIMEOUT, transport=transport) as c:
+            with httpx.Client(timeout=_timeout(timeout), transport=transport) as c:
                 res = _finish(c.post(url, headers=headers, json=body), model_id)
             res.model = model_id
             return res
@@ -319,7 +355,7 @@ def generate(
                 raise
             model_id = _retry_model(db, model_id, transport)
         except httpx.HTTPError as exc:
-            raise LLMError("Le service d'IA est injoignable pour le moment.") from exc
+            raise _net_error(exc, model_id, timeout, False, t0) from exc
     raise AssertionError("unreachable")
 
 
@@ -331,15 +367,18 @@ async def agenerate(
     tools: list[dict] | None = None,
     schema: dict | None = None,
     max_tokens: int = 8000,
+    fast: bool = False,
+    timeout: float = TIMEOUT,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> Result:
     model_id = None
     for attempt in range(2):
         url, headers, body, model_id = _request(
-            db, system, contents, tools, schema, max_tokens, model_id, transport
+            db, system, contents, tools, schema, max_tokens, model_id, transport, fast
         )
+        t0 = time.monotonic()
         try:
-            async with httpx.AsyncClient(timeout=TIMEOUT, transport=transport) as c:
+            async with httpx.AsyncClient(timeout=_timeout(timeout), transport=transport) as c:
                 res = _finish(await c.post(url, headers=headers, json=body), model_id)
             res.model = model_id
             return res
@@ -348,7 +387,7 @@ async def agenerate(
                 raise
             model_id = _retry_model(db, model_id, transport)
         except httpx.HTTPError as exc:
-            raise LLMError("Le service d'IA est injoignable pour le moment.") from exc
+            raise _net_error(exc, model_id, timeout, False, t0) from exc
     raise AssertionError("unreachable")
 
 
@@ -385,8 +424,9 @@ async def astream(
         parts: list[dict] = []
         usage: dict = {}
         reason, blocked = None, None
+        t0 = time.monotonic()
         try:
-            async with httpx.AsyncClient(timeout=timeout, transport=transport) as c:
+            async with httpx.AsyncClient(timeout=_timeout(timeout), transport=transport) as c:
                 async with c.stream("POST", url, headers=headers, json=body) as resp:
                     if resp.status_code >= 400:
                         await resp.aread()
@@ -422,7 +462,7 @@ async def astream(
                 continue
             raise
         except httpx.HTTPError as exc:
-            raise LLMError("Le service d'IA est injoignable ou trop lent : réessayez.") from exc
+            raise _net_error(exc, model_id, timeout, bool(parts), t0) from exc
         break
     data = {
         "candidates": [{"content": {"parts": _merge_parts(parts)}, "finishReason": reason or "STOP"}]
@@ -437,7 +477,21 @@ async def astream(
 
 
 def test_connection(db: Session) -> str:
+    t0 = time.monotonic()
     res = generate(db, [user("Réponds uniquement : OK")], max_tokens=50)
     if res.finish in ("refusal", "error"):
         raise LLMError("Gemini n'a pas pu répondre : vérifiez le modèle choisi.")
-    return f"Connexion OK – modèle {res.model} prêt."
+    normal = time.monotonic() - t0
+
+    async def stream() -> None:
+        async for _ in astream(db, [user("Réponds uniquement : OK")], max_tokens=50, fast=True, timeout=30):
+            pass
+
+    t1 = time.monotonic()
+    try:
+        asyncio.run(stream())
+    except LLMError as exc:
+        raise LLMError(f"Appel normal OK ({normal:.1f} s) mais le flux échoue : {exc}") from exc
+    return (
+        f"Connexion OK – modèle {res.model} prêt (appel {normal:.1f} s, flux {time.monotonic() - t1:.1f} s)."
+    )
