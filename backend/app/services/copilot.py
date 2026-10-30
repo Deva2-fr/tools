@@ -82,12 +82,12 @@ ACTIONS: dict[str, tuple[str, str, str]] = {
     "create_opportunity": (
         "POST",
         "/crm/opportunities",
-        "Créer une affaire — {title, company_id?, contact_id?, stage(prospect|qualifie|proposition|negociation|gagne|perdu), amount, probability, expected_close?, next_action?, notes?}",
+        "Créer une affaire — {title, company_id?, contact_id?, stage(prospect|contact|quote|negotiation|won|lost), amount, probability, expected_close?, next_action?, notes?}",
     ),
     "create_company": (
         "POST",
         "/crm/companies",
-        "Créer une société — {name, kind(prospect|client|fournisseur|partenaire), email?, phone?, website?, city?, notes?}",
+        "Créer une société — {name, kind(prospect|client|supplier|partner), email?, phone?, website?, city?, notes?}",
     ),
     "create_contact": (
         "POST",
