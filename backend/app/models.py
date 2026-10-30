@@ -620,7 +620,7 @@ class FileRecord(Base):
     name: Mapped[str] = mapped_column(String(200))
     category: Mapped[str] = mapped_column(
         String(40), default="autre"
-    )  # contrat|legal|assurance|facture|rh|autre
+    )  # contrat|legal|assurance|facture|rh|projet|autre
     original_name: Mapped[str] = mapped_column(String(300))
     stored_name: Mapped[str] = mapped_column(String(80), unique=True)
     mime: Mapped[str] = mapped_column(String(100))

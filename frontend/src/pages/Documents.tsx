@@ -32,7 +32,7 @@ function FolderModal({ title, initial, onSave, onClose, busy, error }: { title: 
   );
 }
 
-const CATS: [string, string][] = [["legal", "Juridique (Kbis, statuts)"], ["contrat", "Contrat"], ["assurance", "Assurance"], ["facture", "Facture fournisseur"], ["rh", "RH"], ["autre", "Autre"]];
+const CATS: [string, string][] = [["legal", "Juridique (Kbis, statuts)"], ["contrat", "Contrat"], ["assurance", "Assurance"], ["facture", "Facture fournisseur"], ["rh", "RH"], ["projet", "Projet"], ["autre", "Autre"]];
 const size = (n: number) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} Mo` : `${Math.ceil(n / 1024)} Ko`);
 
 export default function Documents() {
