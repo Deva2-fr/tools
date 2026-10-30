@@ -1,4 +1,4 @@
-"""Copilote Deva2 : une IA (Claude) qui lit tout le Hub et propose des actions.
+"""Copilote Deva2 : une IA (Gemini) qui lit tout le Hub et propose des actions.
 
 Lecture : l'IA appelle l'API du Hub elle-même (requêtes GET internes, avec la session de l'utilisateur),
 donc elle voit exactement ce que l'utilisateur a le droit de voir — rien de plus.
@@ -13,7 +13,6 @@ import uuid
 from collections.abc import AsyncIterator
 from datetime import date
 
-import anthropic
 import httpx
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -21,13 +20,12 @@ from sqlalchemy.orm import Session
 from app.core.db import utcnow
 from app.core.security import COOKIE_NAME
 from app.models import CopilotBrief, CopilotConversation, CopilotMessage, CopilotUsage, User
-from app.services import integrations
+from app.services import integrations, llm
 
-MODEL = "claude-opus-5-5"
 MAX_TURNS = 12  # appels d'outils enchaînés au maximum par question
 MAX_RESULT = 15000  # caractères d'un résultat d'outil renvoyés à l'IA
 HISTORY = 20  # messages précédents de la conversation renvoyés à l'IA
-PRICE_IN, PRICE_OUT = 4 / 1_000_000, 20 / 1_000_000  # $/jeton (estimation, ≈ €)
+PRICE_IN, PRICE_OUT = llm.PRICE_IN, llm.PRICE_OUT  # estimation du coût par jeton (≈ €)
 DEFAULT_BUDGET = 50.0
 
 # Lecture : chemins GET autorisés (sous /api). {id} = nombre. Les droits restent ceux de l'API.
@@ -146,7 +144,10 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Ex : /crm/companies/12/overview"},
-                "params": {"type": "object", "description": 'Paramètres de requête, ex : {"q": "ovh"}'},
+                "params_json": {
+                    "type": "string",
+                    "description": 'Paramètres de requête en JSON (texte), ex : {"q": "ovh"}. Optionnel.',
+                },
             },
             "required": ["path"],
         },
@@ -161,9 +162,12 @@ TOOLS = [
             "properties": {
                 "kind": {"type": "string", "enum": list(ACTIONS)},
                 "summary": {"type": "string", "description": "Une phrase claire décrivant l'action."},
-                "payload": {"type": "object"},
+                "payload_json": {
+                    "type": "string",
+                    "description": "Les champs de l'action en JSON (texte), exactement comme décrits ci-dessus.",
+                },
             },
-            "required": ["kind", "summary", "payload"],
+            "required": ["kind", "summary", "payload_json"],
         },
     },
 ]
@@ -215,12 +219,12 @@ def spent_this_month(db: Session) -> float:
             ).where(model.created_at >= start)
         ).one()
         tokens_in, tokens_out = tokens_in + tin, tokens_out + tout
-    return round(tokens_in * PRICE_IN + tokens_out * PRICE_OUT, 2)
+    return round(tokens_in * PRICE_IN + tokens_out * PRICE_OUT, 4)
 
 
 def status(db: Session) -> dict:
     return {
-        "configured": bool(integrations.get(db, "anthropic_api_key")),
+        "configured": llm.configured(db),
         "budget": budget(db),
         "spent": spent_this_month(db),
     }
@@ -281,11 +285,19 @@ TOOL_STATUS = {"hub_get": "Consulte le Hub", "propose_action": "Prépare une pro
 
 
 # ---------- Conversation ----------
-def _client(db: Session) -> anthropic.AsyncAnthropic:
-    key = integrations.get(db, "anthropic_api_key")
-    if not key:
-        raise CopilotError("Renseignez la clé API Anthropic (Paramètres > Intégrations > Assistant IA).")
-    return anthropic.AsyncAnthropic(api_key=key, timeout=180, max_retries=2)
+def _json_arg(value) -> dict:
+    """Argument d'outil donné en JSON (texte) ou déjà en objet."""
+    if isinstance(value, dict):
+        return value
+    if not value or not str(value).strip():
+        return {}
+    try:
+        data = json.loads(str(value))
+    except ValueError as exc:
+        raise CopilotError("JSON invalide dans les paramètres de l'outil.") from exc
+    if not isinstance(data, dict):
+        raise CopilotError("Les paramètres de l'outil doivent être un objet JSON.")
+    return data
 
 
 def _history(conv: CopilotConversation) -> list[dict]:
@@ -293,10 +305,11 @@ def _history(conv: CopilotConversation) -> list[dict]:
     for m in conv.messages[-HISTORY:]:
         if not m.content.strip():
             continue
-        if msgs and msgs[-1]["role"] == m.role:  # rôles alternés (une réponse a pu échouer)
-            msgs[-1]["content"] += "\n\n" + m.content
+        role = "user" if m.role == "user" else "model"
+        if msgs and msgs[-1]["role"] == role:  # rôles alternés (une réponse a pu échouer)
+            msgs[-1]["parts"][0]["text"] += "\n\n" + m.content
         else:
-            msgs.append({"role": m.role, "content": m.content})
+            msgs.append({"role": role, "parts": [llm.text_part(m.content)]})
     while msgs and msgs[0]["role"] != "user":  # l'API exige de commencer par l'utilisateur
         msgs.pop(0)
     if msgs and msgs[-1]["role"] == "user":  # la nouvelle question suit : pas deux tours « user »
@@ -315,7 +328,6 @@ async def chat(
     question: str,
     page: str,
     session_token: str,
-    client: anthropic.AsyncAnthropic | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> AsyncIterator[str]:
     """Répond à `question` en flux SSE. Événements : conversation, text, tool, action, error, done."""
@@ -328,26 +340,25 @@ async def chat(
             }
         )
         return
-    try:
-        c = client or _client(db)
-    except CopilotError as exc:
-        yield _sse({"type": "error", "message": str(exc)})
+    if not llm.configured(db):
+        yield _sse(
+            {
+                "type": "error",
+                "message": "Renseignez la clé API Gemini (Paramètres > Intégrations > Assistant IA).",
+            }
+        )
         return
 
     messages = _history(conv)
     db.add(CopilotMessage(conversation_id=conv.id, role="user", content=question))
     conv.updated_at = utcnow()
     db.commit()
-    messages.append({"role": "user", "content": question})
+    messages.append(llm.user(question))
 
-    context = (
-        f"Aujourd'hui : {date.today().isoformat()}. Utilisateur : {user.name or user.email} "
+    system = (
+        SYSTEM + f"\n\nAujourd'hui : {date.today().isoformat()}. Utilisateur : {user.name or user.email} "
         f"({user.email}, rôle {user.role}). Page ouverte : {page or '/'}."
     )
-    system = [
-        {"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}},
-        {"type": "text", "text": context},
-    ]
     if transport is None:
         from app.main import app  # import tardif : évite l'import circulaire
 
@@ -359,51 +370,48 @@ async def chat(
     ) as api:
         try:
             for _ in range(MAX_TURNS):
-                async with c.messages.stream(
-                    model=MODEL, max_tokens=8000, system=system, tools=TOOLS, messages=messages
-                ) as stream:
-                    async for event in stream:
-                        if event.type == "text":
-                            answer += event.text
-                            yield _sse({"type": "text", "text": event.text})
-                    final = await stream.get_final_message()
-                u = final.usage
-                tin += (
-                    (u.input_tokens or 0)
-                    + (getattr(u, "cache_creation_input_tokens", 0) or 0)
-                    + (getattr(u, "cache_read_input_tokens", 0) or 0)
-                )
-                tout += u.output_tokens or 0
-                if final.stop_reason == "refusal":
+                res = await llm.agenerate(db, messages, system=system, tools=TOOLS, max_tokens=8000)
+                tin += res.tokens_in
+                tout += res.tokens_out
+                if res.text:
+                    answer += res.text
+                    yield _sse({"type": "text", "text": res.text})
+                if res.finish == "refusal":
                     yield _sse(
                         {"type": "error", "message": "Le copilote ne peut pas répondre à cette demande."}
                     )
                     break
-                uses = [b for b in final.content if b.type == "tool_use"]
-                if final.stop_reason == "max_tokens" and uses:
+                if res.finish == "max_tokens" and res.calls:
                     yield _sse(
                         {"type": "error", "message": "Réponse trop longue : reformulez plus précisément."}
                     )
                     break
-                if not uses:
+                if res.finish == "error" and not res.calls:
+                    yield _sse({"type": "error", "message": "L'IA n'a pas pu répondre : réessayez."})
                     break
-                messages.append({"role": "assistant", "content": final.content})
+                if not res.calls:
+                    break
+                messages.append(llm.model(res.parts))
                 results = []
-                for b in uses:
+                for call in res.calls:
+                    inp = call.args or {}
                     yield _sse(
                         {
                             "type": "tool",
-                            "label": TOOL_STATUS.get(b.name, b.name),
-                            "detail": (b.input or {}).get("path", ""),
+                            "label": TOOL_STATUS.get(call.name, call.name),
+                            "detail": inp.get("path", ""),
                         }
                     )
-                    inp = b.input or {}
                     try:
-                        if b.name == "hub_get":
-                            text, is_error = await hub_get(api, str(inp.get("path", "")), inp.get("params"))
-                        elif b.name == "propose_action":
+                        if call.name == "hub_get":
+                            text, is_error = await hub_get(
+                                api, str(inp.get("path", "")), _json_arg(inp.get("params_json"))
+                            )
+                        elif call.name == "propose_action":
                             action = make_action(
-                                str(inp.get("kind")), str(inp.get("summary", "")), inp.get("payload") or {}
+                                str(inp.get("kind")),
+                                str(inp.get("summary", "")),
+                                _json_arg(inp.get("payload_json")),
                             )
                             actions.append(action)
                             yield _sse({"type": "action", "action": action})
@@ -412,36 +420,18 @@ async def chat(
                                 False,
                             )
                         else:
-                            text, is_error = f"Outil inconnu : {b.name}", True
+                            text, is_error = f"Outil inconnu : {call.name}", True
                     except (CopilotError, ValueError, TypeError) as exc:
                         text, is_error = f"Erreur : {exc}", True
-                    results.append(
-                        {"type": "tool_result", "tool_use_id": b.id, "content": text, "is_error": is_error}
-                    )
-                messages.append({"role": "user", "content": results})
+                    results.append((call.name, text, is_error))
+                messages.append(llm.tool_results(results))
                 if answer and not answer.endswith("\n"):
                     answer += "\n\n"
                     yield _sse({"type": "text", "text": "\n\n"})
             else:
                 yield _sse({"type": "error", "message": "La question demande trop d'étapes : découpez-la."})
-        except anthropic.AuthenticationError:
-            yield _sse(
-                {
-                    "type": "error",
-                    "message": "La clé API Anthropic est refusée : vérifiez-la dans Paramètres > Intégrations.",
-                }
-            )
-        except anthropic.RateLimitError:
-            yield _sse(
-                {
-                    "type": "error",
-                    "message": "Trop de demandes à l'IA pour le moment : réessayez dans une minute.",
-                }
-            )
-        except anthropic.APIConnectionError:
-            yield _sse({"type": "error", "message": "Le service d'IA est injoignable pour le moment."})
-        except anthropic.APIStatusError as exc:
-            yield _sse({"type": "error", "message": f"Erreur du service d'IA ({exc.status_code})."})
+        except llm.LLMError as exc:
+            yield _sse({"type": "error", "message": str(exc)})
 
     if not answer.strip() and actions:
         answer = "Propositions : " + " ; ".join(a["summary"] for a in actions)

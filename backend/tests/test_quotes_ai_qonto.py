@@ -1,11 +1,11 @@
 import json
-from types import SimpleNamespace
 
 import httpx
 import pytest
 
 from app.models import BillingDoc
-from app.services import integrations, qonto, qonto_billing, qonto_oauth, quote_ai
+from app.services import integrations, qonto, qonto_billing, qonto_oauth
+from tests.llm_fake import FakeLLM
 
 
 def make_quote(client, company_name="Formasyl"):
@@ -26,23 +26,6 @@ def make_quote(client, company_name="Formasyl"):
             ],
         },
     ).json()
-
-
-class FakeAnthropic:
-    """Client Anthropic factice : renvoie une réponse JSON fixe et garde la requête."""
-
-    def __init__(self, payload, stop_reason="end_turn"):
-        self.calls = []
-        outer = self
-
-        class _Msgs:
-            def create(self, **kw):
-                outer.calls.append(kw)
-                return SimpleNamespace(
-                    stop_reason=stop_reason, content=[SimpleNamespace(type="text", text=json.dumps(payload))]
-                )
-
-        self.beta = SimpleNamespace(messages=_Msgs())
 
 
 PROPOSAL = {
@@ -77,11 +60,10 @@ def test_ai_improve_returns_proposal_without_saving(client, db, monkeypatch):
         ],
     }
     r = client.post(f"/api/billing/{q['id']}/ai-improve", json=body)
-    assert r.status_code == 400 and "clé API Anthropic" in r.json()["detail"]
+    assert r.status_code == 400 and "clé API Gemini" in r.json()["detail"]
 
-    fake = FakeAnthropic(PROPOSAL)
-    integrations.put(db, "anthropic_api_key", "sk-ant-test")
-    monkeypatch.setattr(quote_ai, "_client", lambda _db: fake)
+    fake = FakeLLM(monkeypatch, payload=PROPOSAL)
+    integrations.put(db, "gemini_api_key", "AIza-test")
     r = client.post(f"/api/billing/{q['id']}/ai-improve", json=body)
     assert r.status_code == 200, r.text
     p = r.json()
@@ -91,14 +73,13 @@ def test_ai_improve_returns_proposal_without_saving(client, db, monkeypatch):
     ]
     assert p["lines"][1]["vat_rate"] == 20  # taux non autorisé (7) ramené à 20
     call = fake.calls[0]
-    assert call["model"] == "claude-opus-5-5" and call["fallbacks"] == "default"
-    assert call["output_config"]["format"]["type"] == "json_schema"
-    sent = json.loads(call["messages"][0]["content"])
+    assert call["schema"]["required"] == ["title", "lines", "notes", "changes"] and "tools" not in call
+    sent = json.loads(call["contents"][0]["parts"][0]["text"])
     assert sent["client"] == "Formasyl" and sent["consigne_utilisateur"] == "plus pro"
     # Rien n'est enregistré tant que l'utilisateur n'applique pas la proposition
     assert client.get(f"/api/billing/{q['id']}").json()["title"] == "site"
 
-    monkeypatch.setattr(quote_ai, "_client", lambda _db: FakeAnthropic({}, stop_reason="refusal"))
+    FakeLLM(monkeypatch, payload={}, finish="refusal")
     r = client.post(f"/api/billing/{q['id']}/ai-improve", json=body)
     assert r.status_code == 400 and "refusé" in r.json()["detail"]
 

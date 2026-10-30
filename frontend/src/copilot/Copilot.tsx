@@ -200,7 +200,7 @@ export default function Copilot({ open, onClose, ask, onAsked }: { open: boolean
           ) : !msgs.length ? (
             <div className="space-y-4">
               <p className="text-slate-600">Posez une question sur vos clients, vos mails, vos devis, votre trésorerie, vos projets… Le copilote consulte le Hub, fait les liens et vous propose des actions.</p>
-              {st && !st.configured && <p className="rounded bg-amber-50 px-3 py-2 text-xs text-amber-800">Renseignez d'abord la clé API Anthropic : Paramètres → Intégrations → Assistant IA.</p>}
+              {st && !st.configured && <p className="rounded bg-amber-50 px-3 py-2 text-xs text-amber-800">Renseignez d'abord la clé API Gemini : Paramètres → Intégrations → Assistant IA.</p>}
               <div className="flex flex-col gap-2">
                 {SUGGESTIONS.map((s) => <button key={s} onClick={() => send(s)} className="rounded-md border border-slate-200 px-3 py-2 text-left text-slate-700 transition hover:border-brand-500 hover:bg-brand-50/40">{s}</button>)}
               </div>

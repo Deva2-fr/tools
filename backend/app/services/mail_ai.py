@@ -6,12 +6,11 @@ Les contenus de mails sont traités comme des données : l'IA ne suit aucune ins
 
 import json
 
-import anthropic
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import CopilotUsage, MailMessage
-from app.services import copilot, integrations, outlook
+from app.services import copilot, llm, outlook
 
 INTENTS = {
     "demande_devis": "Demande de devis",
@@ -66,16 +65,11 @@ def pending(db: Session, limit: int = BATCH) -> list[MailMessage]:
     return [m for m in rows if outlook.display_tag(m) in ("a_repondre", "urgent")][:limit]
 
 
-def analyze(db: Session, mails: list[MailMessage], client: anthropic.Anthropic | None = None) -> int:
+def analyze(db: Session, mails: list[MailMessage]) -> int:
     """Analyse un lot de mails ; renvoie le nombre de mails analysés (0 si pas de clé / budget)."""
     mails = mails[:BATCH]
-    if not mails:
+    if not mails or not llm.configured(db) or copilot.spent_this_month(db) >= copilot.budget(db):
         return 0
-    key = integrations.get(db, "anthropic_api_key")
-    if client is None:
-        if not key or copilot.spent_this_month(db) >= copilot.budget(db):
-            return 0
-        client = anthropic.Anthropic(api_key=key, timeout=90, max_retries=1)
     payload = [
         {
             "id": m.id,
@@ -85,30 +79,17 @@ def analyze(db: Session, mails: list[MailMessage], client: anthropic.Anthropic |
         }
         for m in mails
     ]
-    r = client.beta.messages.create(
-        model=copilot.MODEL,
+    r = llm.generate(
+        db,
+        [llm.user(PROMPT.format(intents=" | ".join(INTENTS), mails=json.dumps(payload, ensure_ascii=False)))],
+        schema=SCHEMA,
         max_tokens=4000,
-        output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCHEMA}},
-        messages=[
-            {
-                "role": "user",
-                "content": PROMPT.format(
-                    intents=" | ".join(INTENTS), mails=json.dumps(payload, ensure_ascii=False)
-                ),
-            }
-        ],
     )
-    db.add(
-        CopilotUsage(
-            kind="mail_triage",
-            input_tokens=r.usage.input_tokens or 0,
-            output_tokens=r.usage.output_tokens or 0,
-        )
-    )
-    if r.stop_reason in ("refusal", "max_tokens"):
+    db.add(CopilotUsage(kind="mail_triage", input_tokens=r.tokens_in, output_tokens=r.tokens_out))
+    if r.finish != "stop":
         db.commit()
         return 0
-    data = json.loads(next(b.text for b in r.content if b.type == "text"))
+    data = json.loads(r.text)
     by_id = {m.id: m for m in mails}
     done = 0
     for item in data.get("mails", []):
@@ -126,6 +107,6 @@ def triage_pending(db: Session) -> int:
     """Utilisé après chaque synchronisation des boîtes (worker) : analyse les nouveaux mails à traiter."""
     try:
         return analyze(db, pending(db))
-    except (anthropic.APIError, ValueError, StopIteration):
+    except (llm.LLMError, ValueError):
         db.rollback()
         return 0

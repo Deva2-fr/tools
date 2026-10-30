@@ -1,4 +1,4 @@
-"""Amélioration d'un devis par l'IA (Claude) : intitulés, découpage des lignes, conditions.
+"""Amélioration d'un devis par l'IA (Gemini) : intitulés, découpage des lignes, conditions.
 
 La proposition n'est jamais enregistrée directement : l'interface l'affiche, l'utilisateur
 l'applique (ou non) puis enregistre lui-même. Les prix ne sont modifiés que si on le demande.
@@ -6,13 +6,11 @@ l'applique (ou non) puis enregistre lui-même. Les prix ne sont modifiés que si
 
 import json
 
-import anthropic
 from sqlalchemy.orm import Session
 
 from app.models import BillingDoc, Company
-from app.services import integrations
+from app.services import integrations, llm
 
-MODEL = "claude-opus-5-5"
 VAT_RATES = [20, 10, 5.5, 2.1, 0]
 
 SYSTEM = """Tu aides une agence web française (Deva2) à rédiger des devis clairs et professionnels.
@@ -61,14 +59,7 @@ class AIError(RuntimeError):
 
 
 def is_configured(db: Session) -> bool:
-    return bool(integrations.get(db, "anthropic_api_key"))
-
-
-def _client(db: Session) -> anthropic.Anthropic:
-    key = integrations.get(db, "anthropic_api_key")
-    if not key:
-        raise AIError("Renseignez la clé API Anthropic (Paramètres > Intégrations > Assistant IA).")
-    return anthropic.Anthropic(api_key=key, timeout=120, max_retries=2)
+    return llm.configured(db)
 
 
 def _payload(
@@ -97,41 +88,24 @@ def improve(
     title: str,
     notes: str,
     instructions: str = "",
-    client: anthropic.Anthropic | None = None,
 ) -> dict:
     """Renvoie {title, lines, notes, changes} : une proposition, non enregistrée."""
-    c = client or _client(db)
     try:
-        response = c.beta.messages.create(
-            model=MODEL,
-            max_tokens=16000,
-            # Si la demande est refusée par un filtre de sécurité, l'API la rejoue sur un autre modèle.
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-            output_config={"effort": "medium", "format": {"type": "json_schema", "schema": SCHEMA}},
+        res = llm.generate(
+            db,
+            [llm.user(_payload(db, doc, lines, title, notes, instructions))],
             system=SYSTEM,
-            messages=[{"role": "user", "content": _payload(db, doc, lines, title, notes, instructions)}],
+            schema=SCHEMA,
+            max_tokens=16000,
         )
-    except anthropic.AuthenticationError as exc:
-        raise AIError(
-            "La clé API Anthropic est refusée : vérifiez-la dans Paramètres > Intégrations."
-        ) from exc
-    except anthropic.PermissionDeniedError as exc:
-        raise AIError("La clé API Anthropic n'a pas accès à ce modèle.") from exc
-    except anthropic.RateLimitError as exc:
-        raise AIError("Trop de demandes à l'IA pour le moment : réessayez dans une minute.") from exc
-    except anthropic.APIConnectionError as exc:
-        raise AIError("Le service d'IA est injoignable pour le moment.") from exc
-    except anthropic.APIStatusError as exc:
-        raise AIError(f"Erreur du service d'IA ({exc.status_code}).") from exc
-
-    if response.stop_reason == "refusal":
+    except llm.LLMError as exc:
+        raise AIError(str(exc)) from exc
+    if res.finish == "refusal":
         raise AIError("L'IA a refusé de traiter ce devis. Reformulez la consigne.")
-    if response.stop_reason == "max_tokens":
+    if res.finish == "max_tokens":
         raise AIError("Le devis est trop long pour être amélioré en une fois.")
-    text = next((b.text for b in response.content if b.type == "text"), "")
     try:
-        data = json.loads(text)
+        data = json.loads(res.text)
     except ValueError as exc:
         raise AIError("Réponse de l'IA illisible : réessayez.") from exc
 
@@ -156,11 +130,6 @@ def improve(
 
 def test_connection(db: Session) -> str:
     try:
-        _client(db).models.retrieve(MODEL)
-    except anthropic.AuthenticationError as exc:
-        raise AIError("La clé API Anthropic est refusée.") from exc
-    except anthropic.APIConnectionError as exc:
-        raise AIError("Le service d'IA est injoignable.") from exc
-    except anthropic.APIStatusError as exc:
-        raise AIError(f"Erreur du service d'IA ({exc.status_code}).") from exc
-    return "Connexion OK – assistant IA prêt."
+        return llm.test_connection(db)
+    except llm.LLMError as exc:
+        raise AIError(str(exc)) from exc

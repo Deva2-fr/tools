@@ -8,7 +8,6 @@ par utilisateur. Sans clé API ou budget épuisé : brief rédigé automatiqueme
 import json
 from datetime import date, timedelta
 
-import anthropic
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -28,7 +27,7 @@ from app.models import (
     TimeEntry,
     User,
 )
-from app.services import billing, copilot, integrations, links, outlook
+from app.services import billing, copilot, links, llm, outlook
 
 OPEN_STAGES = ("prospect", "contact", "quote", "negotiation")
 SCHEMA = {
@@ -304,30 +303,27 @@ def _fallback(f: dict) -> dict:
 
 def _write(db: Session, user: User, f: dict) -> tuple[dict, int, int]:
     """Rédaction par l'IA ; repli automatique sans IA (pas de clé, budget atteint, erreur)."""
-    key = integrations.get(db, "anthropic_api_key")
-    if not key or copilot.spent_this_month(db) >= copilot.budget(db):
+    if not llm.configured(db) or copilot.spent_this_month(db) >= copilot.budget(db):
         return _fallback(f), 0, 0
     try:
-        client = anthropic.Anthropic(api_key=key, timeout=60, max_retries=1)
-        r = client.beta.messages.create(
-            model=copilot.MODEL,
-            max_tokens=2000,
-            output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCHEMA}},
-            messages=[
-                {
-                    "role": "user",
-                    "content": PROMPT.format(
+        r = llm.generate(
+            db,
+            [
+                llm.user(
+                    PROMPT.format(
                         name=user.name or user.email, facts=json.dumps(f, ensure_ascii=False, default=str)
-                    ),
-                }
+                    )
+                )
             ],
+            schema=SCHEMA,
+            max_tokens=2000,
         )
-        if r.stop_reason in ("refusal", "max_tokens"):
+        if r.finish != "stop":
             return _fallback(f), 0, 0
-        data = json.loads(next(b.text for b in r.content if b.type == "text"))
+        data = json.loads(r.text)
         data = {"headline": str(data["headline"])[:200], "points": [str(p)[:400] for p in data["points"]][:5]}
-        return data, r.usage.input_tokens or 0, r.usage.output_tokens or 0
-    except (anthropic.APIError, ValueError, KeyError, StopIteration):
+        return data, r.tokens_in, r.tokens_out
+    except (llm.LLMError, ValueError, KeyError):
         return _fallback(f), 0, 0
 
 

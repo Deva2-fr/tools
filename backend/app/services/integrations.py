@@ -75,11 +75,17 @@ FIELDS: list[Field] = [
     ),
     Field("qonto_oauth_refresh_token", "", "qonto", secret=True, internal=True),
     Field(
-        "anthropic_api_key",
-        "Clé API Anthropic (Claude)",
+        "gemini_api_key",
+        "Clé API Gemini (Google)",
         "ai",
-        "console.anthropic.com > API Keys : copilote du Hub et amélioration des devis",
+        "aistudio.google.com > Get API key : copilote du Hub, brief, tri des mails, devis, documents",
         secret=True,
+    ),
+    Field(
+        "gemini_model",
+        "Modèle Gemini",
+        "ai",
+        "Vide = gemini-2.5-flash (rapide, économique). Pour plus de finesse : gemini-2.5-pro",
     ),
     Field(
         "copilot_monthly_budget",

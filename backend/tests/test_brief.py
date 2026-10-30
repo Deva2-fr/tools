@@ -1,9 +1,8 @@
-import json
 from datetime import date, timedelta
-from types import SimpleNamespace
 
 from app.models import BillingDoc, Company, CopilotBrief, Opportunity, Task
-from app.services import brief, integrations
+from app.services import integrations
+from tests.llm_fake import FakeLLM
 
 
 def seed_data(db):
@@ -51,33 +50,21 @@ def test_suggestions_and_fallback_brief(client, db):
 
 def test_ai_brief_is_cached_daily_and_counts_budget(client, db, monkeypatch):
     seed_data(db)
-    integrations.put(db, "anthropic_api_key", "sk-test")
-    calls = []
-
-    class FakeAnthropic:
-        def __init__(self, **kw):
-            self.beta = SimpleNamespace(messages=SimpleNamespace(create=self.create))
-
-        def create(self, **kw):
-            calls.append(kw)
-            payload = {
-                "headline": "Relancez Acme aujourd'hui.",
-                "points": ["Devis Refonte sans réponse depuis 15 jours."],
-            }
-            return SimpleNamespace(
-                stop_reason="end_turn",
-                content=[SimpleNamespace(type="text", text=json.dumps(payload))],
-                usage=SimpleNamespace(input_tokens=500, output_tokens=80),
-            )
-
-    monkeypatch.setattr(brief.anthropic, "Anthropic", FakeAnthropic)
+    integrations.put(db, "gemini_api_key", "AIza-test")
+    fake = FakeLLM(
+        monkeypatch,
+        payload={
+            "headline": "Relancez Acme aujourd'hui.",
+            "points": ["Devis Refonte sans réponse depuis 15 jours."],
+        },
+    )
     b = client.get("/api/copilot/brief").json()
     assert b["ai"] is True and b["headline"] == "Relancez Acme aujourd'hui."
-    assert "Acme" in calls[0]["messages"][0]["content"]  # faits réels envoyés à l'IA
+    assert "Acme" in fake.calls[0]["contents"][0]["parts"][0]["text"]  # faits réels envoyés à l'IA
     client.get("/api/copilot/brief")
-    assert len(calls) == 1  # en cache pour la journée
+    assert len(fake.calls) == 1  # en cache pour la journée
     client.get("/api/copilot/brief?refresh=true")
-    assert len(calls) == 2 and db.query(CopilotBrief).count() == 1
+    assert len(fake.calls) == 2 and db.query(CopilotBrief).count() == 1
     assert client.get("/api/copilot/status").json()["spent"] > 0
 
 
