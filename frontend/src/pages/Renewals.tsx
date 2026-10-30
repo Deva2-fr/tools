@@ -19,6 +19,37 @@ function Summary() {
   );
 }
 
+interface LinkSugg { subscription_id: number; subscription_name: string; transaction_id: number; label: string; date: string; amount: number }
+
+/** Débits qui ressemblent à un abonnement mais n'y sont pas rattachés : un clic pour les lier. */
+function LinkSuggestions() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["subs-link-sugg"], queryFn: () => api<LinkSugg[]>("/subscriptions/link-suggestions") });
+  const add = useMutation({
+    mutationFn: (rows: LinkSugg[]) => Promise.all(Object.entries(rows.reduce<Record<number, number[]>>((acc, r) => ({ ...acc, [r.subscription_id]: [...(acc[r.subscription_id] ?? []), r.transaction_id] }), {}))
+      .map(([sid, ids]) => api(`/subscriptions/${sid}/links/add`, "POST", { transaction_ids: ids }))),
+    onSuccess: () => qc.invalidateQueries(),
+  });
+  if (!data?.length) return null;
+  return (
+    <div data-tour="subs-link-sugg" className="mb-6 rounded-md border border-brand-600/25 bg-brand-50/40 p-4">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-medium text-slate-800">✨ {data.length} prélèvement(s) semblent correspondre à vos abonnements</p>
+        <Button variant="soft" busy={add.isPending} onClick={() => add.mutate(data)}>Tout lier</Button>
+      </div>
+      <ul className="divide-y divide-brand-600/10 text-sm">
+        {data.slice(0, 6).map((s) => (
+          <li key={`${s.subscription_id}-${s.transaction_id}`} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
+            <span className="min-w-0"><b>{s.subscription_name}</b> <span className="text-slate-400">←</span> {s.label} <span className="text-xs text-slate-400">· {fmtDate(s.date)}</span></span>
+            <span className="flex items-center gap-3"><span className="font-medium text-red-700">{fmtMoney(s.amount)}</span><button className="text-xs font-medium text-brand-600 hover:underline" disabled={add.isPending} onClick={() => add.mutate([s])}>Lier</button></span>
+          </li>
+        ))}
+      </ul>
+      <ErrorMsg error={add.error} />
+    </div>
+  );
+}
+
 type Kind = "transactions" | "expenses" | "invoices";
 interface Links { invoices: Row[]; transactions: Row[]; expenses: Row[]; spent_12m: number; annual_cost: number }
 const TABS: { key: Kind; label: string; ids: string; source: string; empty: string }[] = [
@@ -115,7 +146,7 @@ export default function Renewals() {
     <ResourcePage
       title="Abonnements, domaines & contrats"
       subtitle="Ne laissez plus expirer un nom de domaine, une assurance ou un abonnement : le Hub vous prévient avant chaque renouvellement."
-      endpoint="/subscriptions" newLabel="Nouvel abonnement" exportName="abonnements" headerExtra={<Summary />}
+      endpoint="/subscriptions" newLabel="Nouvel abonnement" exportName="abonnements" headerExtra={<><Summary /><LinkSuggestions /></>}
       initial={{ kind: "saas", period: "yearly", notice_days: 30, auto_renew: true, active: true, cost: 0 }}
       empty="Ajoutez vos domaines (deva2.fr, formasyl.org…), hébergements, licences et assurances."
       fields={[

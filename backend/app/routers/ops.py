@@ -42,7 +42,7 @@ from app.schemas_ops import (
     TransactionImport,
     TransactionIn,
 )
-from app.services import qonto, renewals, treasury
+from app.services import links, qonto, renewals, treasury
 
 router = APIRouter(dependencies=[Depends(current_user)])
 
@@ -191,6 +191,35 @@ def _fetch(db: Session, model, ids: list[int], what: str) -> list:
 @router.get("/subscriptions/{sub_id}/links", dependencies=[Depends(manager_user)])
 def subscription_links(sub_id: int, db: Session = Depends(get_db)):
     return _links(db, _sub(db, sub_id))
+
+
+@router.get("/subscriptions/link-suggestions", dependencies=[Depends(manager_user)])
+def subscription_link_suggestions(db: Session = Depends(get_db)):
+    """Débits bancaires qui ressemblent à un abonnement mais n'y sont pas rattachés."""
+    return links.subscription_suggestions(db)
+
+
+class LinkAdd(BaseModel):
+    transaction_ids: list[int] = Field(default_factory=list, max_length=200)
+
+
+@router.post("/subscriptions/{sub_id}/links/add")
+def add_subscription_links(
+    sub_id: int, body: LinkAdd, db: Session = Depends(get_db), user: User = Depends(manager_user)
+):
+    """Ajoute des débits aux dépenses liées (sans toucher aux liens existants)."""
+    s = _sub(db, sub_id)
+    new = [
+        t
+        for t in _fetch(db, Transaction, body.transaction_ids, "Mouvement bancaire")
+        if t not in s.transactions
+    ]
+    if any(t.amount >= 0 for t in new):
+        raise HTTPException(400, "Seuls les débits (sorties d'argent) peuvent être liés à un abonnement.")
+    s.transactions.extend(new)
+    db.commit()
+    audit(db, user.email, "subscription_links_added", f"{s.name}: +{len(new)} mouvement(s)")
+    return _links(db, s)
 
 
 @router.put("/subscriptions/{sub_id}/links")

@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import utcnow
 from app.core.security import COOKIE_NAME
-from app.models import CopilotBrief, CopilotConversation, CopilotMessage, User
+from app.models import CopilotBrief, CopilotConversation, CopilotMessage, CopilotUsage, User
 from app.services import integrations
 
 MODEL = "claude-opus-5-5"
@@ -56,6 +56,10 @@ READ: list[tuple[str, str]] = [
     ("/treasury/forecast", "Prévision de trésorerie (days=30..365)."),
     ("/subscriptions", "Abonnements, domaines, contrats (q)."),
     ("/subscriptions-summary", "Coût annuel des abonnements."),
+    (
+        "/subscriptions/link-suggestions",
+        "Débits bancaires qui semblent correspondre à un abonnement non rattaché.",
+    ),
     ("/expenses", "Notes de frais."),
     ("/taxes", "Échéances fiscales (TVA, déclarations, CFE)."),
     ("/time", "Temps passé (month=AAAA-MM)."),
@@ -109,6 +113,11 @@ ACTIONS: dict[str, tuple[str, str, str]] = {
         "/billing",
         "Préparer un brouillon de devis dans le Hub (rien n'est envoyé) — {kind:'quote', company_id, title, issue_date, due_date?, notes?, lines:[{description, quantity, unit_price, vat_rate}]}",
     ),
+    "link_subscription_debits": (
+        "POST",
+        "/subscriptions/{subscription_id}/links/add",
+        "Rattacher des débits bancaires à un abonnement — {subscription_id, transaction_ids:[...]}",
+    ),
     "create_tax_deadline": (
         "POST",
         "/taxes",
@@ -124,6 +133,7 @@ LABELS = {
     "tag_mail": "Changer le tag",
     "create_quote": "Préparer le devis",
     "create_tax_deadline": "Ajouter l'échéance",
+    "link_subscription_debits": "Rattacher les débits",
 }
 
 TOOLS = [
@@ -197,7 +207,7 @@ def spent_this_month(db: Session) -> float:
     """Dépense estimée du mois (copilote + briefs), tous utilisateurs."""
     start = utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     tokens_in = tokens_out = 0
-    for model in (CopilotMessage, CopilotBrief):
+    for model in (CopilotMessage, CopilotBrief, CopilotUsage):
         tin, tout = db.execute(
             select(
                 func.coalesce(func.sum(model.input_tokens), 0),

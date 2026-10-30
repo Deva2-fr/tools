@@ -28,7 +28,7 @@ from app.models import (
     TimeEntry,
     User,
 )
-from app.services import billing, copilot, integrations, outlook
+from app.services import billing, copilot, integrations, links, outlook
 
 OPEN_STAGES = ("prospect", "contact", "quote", "negotiation")
 SCHEMA = {
@@ -176,6 +176,17 @@ def suggestions(db: Session, user: User) -> list[dict]:
                     "detail": f"Renouvellement le {s.renewal_date.strftime('%d/%m/%Y')} · aucune dépense rattachée.",
                     "link": "/abonnements",
                     "ask": f"L'abonnement {s.name} est-il encore utile ? Cherche les dépenses correspondantes.",
+                }
+            )
+        to_link = links.subscription_suggestions(db)
+        if to_link:
+            out.append(
+                {
+                    "kind": "rapprochements",
+                    "title": f"{len(to_link)} prélèvement(s) à rattacher à vos abonnements",
+                    "detail": ", ".join(sorted({s["subscription_name"] for s in to_link})[:3]),
+                    "link": "/abonnements",
+                    "ask": "Quels prélèvements bancaires correspondent à mes abonnements ? Propose de les rattacher.",
                 }
             )
         docs = db.scalars(

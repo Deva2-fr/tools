@@ -11,6 +11,7 @@ from app.services import (
     billing,
     digest,
     google_calendar,
+    mail_ai,
     mailbox,
     monitoring,
     qonto,
@@ -55,6 +56,9 @@ def job_cve(db):
 @safe("mails")
 def job_mail(db):
     mailbox.sync_all(db)
+    n = mail_ai.triage_pending(db)  # résumé et intention des nouveaux mails à traiter (si IA configurée)
+    if n:
+        log.info("Mails analysés par l'IA : %d", n)
 
 
 @safe("echeances")

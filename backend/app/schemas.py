@@ -171,6 +171,11 @@ class MailOut(ORM):
     received_at: datetime
     is_read: bool
     tag: str
+    ai_summary: str = ""
+    ai_intent: str = ""
+    company_id: int | None = None
+    company_name: str = ""
+    contact_id: int | None = None
 
 
 class MailboxIn(BaseModel):
