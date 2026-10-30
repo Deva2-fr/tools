@@ -13,4 +13,3 @@ python-multipart==0.0.32
 alembic==1.20.1
 reportlab==5.1.0
 pypdf==6.21.3
-anthropic==2.3.0

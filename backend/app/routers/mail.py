@@ -13,7 +13,7 @@ from app.core.security import admin_user, current_user
 from app.models import Mailbox, MailMessage, User
 from app.routers.auth import audit
 from app.schemas import MailboxIn, MailOut, MailTagIn
-from app.services import integrations, links, mail_ai, mail_imap, mailbox, outlook
+from app.services import integrations, links, llm, mail_ai, mail_imap, mailbox, outlook
 
 router = APIRouter(prefix="/mail", tags=["mails"])
 
@@ -312,12 +312,10 @@ def set_tag(message_id: int, body: MailTagIn, db: Session = Depends(get_db)):
 @router.post("/ai-triage", dependencies=[Depends(current_user)])
 def ai_triage(db: Session = Depends(get_db)):
     """Résume et classe par l'IA les mails à traiter pas encore analysés (20 par appel)."""
-    if not integrations.get(db, "anthropic_api_key"):
-        raise HTTPException(
-            400, "Renseignez la clé API Anthropic (Paramètres > Intégrations > Assistant IA)."
-        )
+    if not llm.configured(db):
+        raise HTTPException(400, "Renseignez la clé API Gemini (Paramètres > Intégrations > Assistant IA).")
     try:
         done = mail_ai.analyze(db, mail_ai.pending(db))
-    except Exception as exc:  # erreur du service d'IA : message lisible
+    except llm.LLMError as exc:  # erreur du service d'IA : message lisible
         raise HTTPException(502, f"Analyse impossible pour le moment : {str(exc)[:150]}") from exc
     return {"analyzed": done, "remaining": len(mail_ai.pending(db, limit=500))}

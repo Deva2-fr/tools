@@ -1,39 +1,23 @@
-import json
-from types import SimpleNamespace
-
 from app.models import CopilotUsage
-from app.services import doc_ai, integrations
-
-
-class Fake:
-    def __init__(self, payload):
-        self.payload, self.sent = payload, None
-        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self.create))
-
-    def create(self, **kw):
-        self.sent = kw
-        return SimpleNamespace(
-            stop_reason="end_turn",
-            content=[SimpleNamespace(type="text", text=json.dumps(self.payload))],
-            usage=SimpleNamespace(input_tokens=900, output_tokens=60),
-        )
+from app.services import integrations
+from tests.llm_fake import FakeLLM
 
 
 def test_receipt_is_read_into_expense_fields(client, db, monkeypatch):
     r = client.post("/api/expenses/ai-read", files={"file": ("t.pdf", b"%PDF-1.4 ticket", "application/pdf")})
-    assert r.status_code == 400 and "clé API" in r.json()["detail"]
-    integrations.put(db, "anthropic_api_key", "sk-test")
-    fake = Fake(
-        {
+    assert r.status_code == 400 and "clé API Gemini" in r.json()["detail"]
+    integrations.put(db, "gemini_api_key", "AIza-test")
+    fake = FakeLLM(
+        monkeypatch,
+        payload={
             "expense_date": "2026-10-20",
             "amount_ttc": 54.5,
             "vat_rate": 10,
             "vendor": "SNCF",
             "reason": "Train Paris-Lyon",
             "category": "Transport",
-        }
+        },
     )
-    monkeypatch.setattr(doc_ai, "_client", lambda _db: fake)
     r = client.post("/api/expenses/ai-read", files={"file": ("t.pdf", b"%PDF-1.4 ticket", "application/pdf")})
     assert r.status_code == 200, r.text
     assert r.json() == {
@@ -43,7 +27,7 @@ def test_receipt_is_read_into_expense_fields(client, db, monkeypatch):
         "reason": "Train Paris-Lyon – SNCF",
         "category": "Transport",
     }
-    assert fake.sent["messages"][0]["content"][0]["type"] == "document"
+    assert fake.calls[0]["contents"][0]["parts"][0]["inlineData"]["mimeType"] == "application/pdf"
     assert db.query(CopilotUsage).one().kind == "receipt_ocr"
     bad = client.post(
         "/api/expenses/ai-read", files={"file": ("t.docx", b"PK..", "application/octet-stream")}
@@ -57,7 +41,7 @@ def test_contract_analysis(client, db, monkeypatch):
         data={"name": "Contrat OVH"},
         files={"file": ("c.pdf", b"%PDF-1.4 contrat", "application/pdf")},
     ).json()
-    integrations.put(db, "anthropic_api_key", "sk-test")
+    integrations.put(db, "gemini_api_key", "AIza-test")
     payload = {
         "title": "Contrat d'hébergement",
         "summary": "Hébergement mutualisé, 12 mois.",
@@ -70,7 +54,7 @@ def test_contract_analysis(client, db, monkeypatch):
         "notice": "Résiliation 1 mois avant l'échéance.",
         "points_attention": ["Reconduction tacite"],
     }
-    monkeypatch.setattr(doc_ai, "_client", lambda _db: Fake(payload))
+    FakeLLM(monkeypatch, payload=payload)
     r = client.post(f"/api/files/{up['id']}/ai-analyze")
     assert r.status_code == 200, r.text
     assert r.json()["key_dates"] == [

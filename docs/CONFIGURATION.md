@@ -156,11 +156,11 @@ Le PDF contient déjà les mentions obligatoires usuelles (pénalités de retard
 
 **Préparer un devis dans le Hub, l'améliorer avec l'IA, puis l'envoyer vers Qonto** :
 1. *Devis & factures → + Devis* : client, objet, lignes, conditions ; enregistrez le brouillon.
-2. **✨ Améliorer avec l'IA** (facultatif) : donnez une consigne ou laissez vide pour une relecture. L'IA (Claude) propose un objet, des intitulés plus clairs, un découpage des lignes et des conditions ; elle ne change ni prix, ni quantités, ni TVA sauf si vous le demandez, et affiche l'ancien et le nouveau total. **Appliquer au devis**, relisez, enregistrez.
+2. **✨ Améliorer avec l'IA** (facultatif) : donnez une consigne ou laissez vide pour une relecture. L'IA (Gemini) propose un objet, des intitulés plus clairs, un découpage des lignes et des conditions ; elle ne change ni prix, ni quantités, ni TVA sauf si vous le demandez, et affiche l'ancien et le nouveau total. **Appliquer au devis**, relisez, enregistrez.
 3. **Envoyer vers Qonto** : le client est retrouvé (ou créé) dans Qonto et le devis y est créé **« en attente de validation »** : c'est l'équivalent d'un brouillon chez Qonto (il n'existe pas d'autre statut à la création) : modifiable, supprimable, **pas envoyé au client**. Il prend le numéro Qonto et se gère ensuite dans Qonto (envoi, acceptation) ; le Hub le suit en lecture seule.
 
 Réglages nécessaires (**Paramètres → Intégrations**) :
-- **Assistant IA** : une clé API Anthropic (<https://console.anthropic.com> → API Keys), facturée à l'usage par Anthropic. **Tester la connexion** pour vérifier.
+- **Assistant IA** : une clé API Gemini (<https://aistudio.google.com> → Get API key). L'offre gratuite suffit pour tester, mais Google peut y réutiliser les textes envoyés : pour des données d'entreprise, activez la facturation du projet Google (quelques centimes d'usage). Le modèle par défaut est `gemini-2.5-flash` (réglable). **Tester la connexion** pour vérifier. Plafond de dépense mensuel estimé dans le même groupe de réglages.
 - **Banque Qonto → Connexion Qonto pour les devis** : voir section 12 (connexion OAuth).
 
 **Abonnements** : chaque abonnement peut avoir un **responsable** (utilisateur du Hub : licence nominative, carte utilisée…). **Abonnements ↔ dépenses** : dans **Abonnements**, le bouton **Dépenses liées** rattache à un abonnement (hébergement, nom de domaine…) tout ce qui a été payé pour lui : **mouvements bancaires** (ex. prélèvement OVH importé de Qonto ; la liste est pré-filtrée sur le fournisseur), **notes de frais** et **factures**. La colonne **Payé (12 mois)** additionne ces dépenses et signale quand elles dépassent nettement le coût prévu.

@@ -1,17 +1,15 @@
 """Lecture de documents par l'IA : justificatifs de notes de frais et contrats.
 
-Le fichier (PDF ou image) est envoyé à Claude, qui renvoie des champs structurés. Rien n'est
+Le fichier (PDF ou image) est envoyé à Gemini, qui renvoie des champs structurés. Rien n'est
 enregistré directement : l'interface pré-remplit un formulaire ou propose des actions à valider.
 """
 
-import base64
 import json
 
-import anthropic
 from sqlalchemy.orm import Session
 
 from app.models import CopilotUsage
-from app.services import copilot, integrations
+from app.services import copilot, llm
 
 EXPENSE_CATEGORIES = [
     "Transport",
@@ -88,13 +86,11 @@ class DocAIError(RuntimeError):
     """Erreur affichable telle quelle."""
 
 
-def _client(db: Session) -> anthropic.Anthropic:
-    key = integrations.get(db, "anthropic_api_key")
-    if not key:
-        raise DocAIError("Renseignez la clé API Anthropic (Paramètres > Intégrations > Assistant IA).")
+def _guard(db: Session) -> None:
+    if not llm.configured(db):
+        raise DocAIError("Renseignez la clé API Gemini (Paramètres > Intégrations > Assistant IA).")
     if copilot.spent_this_month(db) >= copilot.budget(db):
         raise DocAIError("Budget mensuel de l'IA atteint (Paramètres > Intégrations > Assistant IA).")
-    return anthropic.Anthropic(api_key=key, timeout=120, max_retries=1)
 
 
 def _block(data: bytes, ext: str) -> dict:
@@ -103,42 +99,28 @@ def _block(data: bytes, ext: str) -> dict:
         raise DocAIError("L'IA lit les PDF et les images (PNG, JPG, WEBP).")
     if len(data) > MAX_BYTES:
         raise DocAIError("Fichier trop volumineux pour l'IA (10 Mo maximum).")
-    kind = "document" if media == "application/pdf" else "image"
-    return {
-        "type": kind,
-        "source": {"type": "base64", "media_type": media, "data": base64.b64encode(data).decode()},
-    }
+    return llm.file_part(data, media)
 
 
-def _ask(db: Session, kind: str, data: bytes, ext: str, prompt: str, schema: dict, client=None) -> dict:
-    c = client or _client(db)
+def _ask(db: Session, kind: str, data: bytes, ext: str, prompt: str, schema: dict) -> dict:
+    _guard(db)
+    part = _block(data, ext)
     try:
-        r = c.beta.messages.create(
-            model=copilot.MODEL,
-            max_tokens=4000,
-            output_config={"effort": "low", "format": {"type": "json_schema", "schema": schema}},
-            messages=[{"role": "user", "content": [_block(data, ext), {"type": "text", "text": prompt}]}],
-        )
-    except anthropic.APIStatusError as exc:
-        raise DocAIError(f"Erreur du service d'IA ({exc.status_code}).") from exc
-    except anthropic.APIConnectionError as exc:
-        raise DocAIError("Le service d'IA est injoignable pour le moment.") from exc
-    db.add(
-        CopilotUsage(
-            kind=kind, input_tokens=r.usage.input_tokens or 0, output_tokens=r.usage.output_tokens or 0
-        )
-    )
+        r = llm.generate(db, [llm.user(part, prompt)], schema=schema, max_tokens=4000)
+    except llm.LLMError as exc:
+        raise DocAIError(str(exc)) from exc
+    db.add(CopilotUsage(kind=kind, input_tokens=r.tokens_in, output_tokens=r.tokens_out))
     db.commit()
-    if r.stop_reason in ("refusal", "max_tokens"):
+    if r.finish in ("refusal", "max_tokens", "error"):
         raise DocAIError("L'IA n'a pas pu lire ce document.")
     try:
-        return json.loads(next(b.text for b in r.content if b.type == "text"))
-    except (StopIteration, ValueError) as exc:
+        return json.loads(r.text)
+    except ValueError as exc:
         raise DocAIError("Réponse de l'IA illisible : réessayez.") from exc
 
 
-def read_receipt(db: Session, data: bytes, ext: str, client=None) -> dict:
-    out = _ask(db, "receipt_ocr", data, ext, RECEIPT_PROMPT, RECEIPT_SCHEMA, client)
+def read_receipt(db: Session, data: bytes, ext: str) -> dict:
+    out = _ask(db, "receipt_ocr", data, ext, RECEIPT_PROMPT, RECEIPT_SCHEMA)
     reason = str(out.get("reason") or "").strip()
     vendor = str(out.get("vendor") or "").strip()
     return {
@@ -152,7 +134,7 @@ def read_receipt(db: Session, data: bytes, ext: str, client=None) -> dict:
     }
 
 
-def analyze_contract(db: Session, data: bytes, ext: str, client=None) -> dict:
-    out = _ask(db, "contract_analysis", data, ext, CONTRACT_PROMPT, CONTRACT_SCHEMA, client)
+def analyze_contract(db: Session, data: bytes, ext: str) -> dict:
+    out = _ask(db, "contract_analysis", data, ext, CONTRACT_PROMPT, CONTRACT_SCHEMA)
     out["key_dates"] = [d for d in out.get("key_dates", []) if len(str(d.get("date", ""))) == 10][:8]
     return out
