@@ -652,3 +652,31 @@ class AccessEntry(Base):
     last_rotated: Mapped[date | None] = mapped_column(Date, nullable=True)
     rotate_every_days: Mapped[int] = mapped_column(Integer, default=365)
     notes: Mapped[str] = mapped_column(Text, default="")
+
+
+# ======================= Copilote IA =======================
+class CopilotConversation(Base):
+    __tablename__ = "copilot_conversations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(200), default="Nouvelle conversation")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    messages: Mapped[list["CopilotMessage"]] = relationship(
+        back_populates="conversation", cascade="all, delete-orphan", order_by="CopilotMessage.id"
+    )
+
+
+class CopilotMessage(Base):
+    __tablename__ = "copilot_messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("copilot_conversations.id", ondelete="CASCADE"), index=True
+    )
+    role: Mapped[str] = mapped_column(String(12))  # user | assistant
+    content: Mapped[str] = mapped_column(Text, default="")
+    actions: Mapped[str] = mapped_column(Text, default="")  # propositions d'action (JSON)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
+    conversation: Mapped[CopilotConversation] = relationship(back_populates="messages")

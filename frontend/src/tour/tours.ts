@@ -29,6 +29,7 @@ export const TOURS: Record<string, TourStep[]> = {
     { title: "Bienvenue dans le Hub Deva2", body: "Tout l'outil de gestion de Deva2 au même endroit. Chaque page a son petit guide, lancé la première fois que vous l'ouvrez." },
     { target: "nav", title: "Le menu", body: "Toutes les sections, rangées par thème : commercial, finances, équipe, infrastructure." },
     { target: "search", title: "La recherche", body: "Retrouvez une société, un contact ou un devis depuis n'importe où (⌘K / Ctrl+K)." },
+    { target: "copilot", title: "Le copilote IA", body: "Posez vos questions sur tout le Hub : il fait les liens et vous propose des actions, que vous validez (⌘J / Ctrl+J)." },
     { target: "guide", title: "Revoir un guide", body: "Ce bouton relance le guide de la page où vous êtes." },
   ],
   dashboard: [
