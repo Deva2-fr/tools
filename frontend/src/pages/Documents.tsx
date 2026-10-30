@@ -4,6 +4,51 @@ import { Row, api, apiUpload, downloadFile } from "../api";
 import { useRefOptions } from "../components";
 import { Badge, Button, Card, Empty, ErrorMsg, Field, Loading, Modal, PageHeader, fmtDate, TableWrap } from "../ui";
 
+interface Analysis { title: string; summary: string; parties: string[]; amount: string; key_dates: { label: string; date: string }[]; notice: string; points_attention: string[] }
+
+/** Analyse d'un contrat par l'IA : résumé, dates clés (transformables en rappels), préavis. */
+function AnalysisModal({ file, onClose }: { file: Row; onClose: () => void }) {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["file-ai", file.id], queryFn: () => api<Analysis>(`/files/${file.id}/ai-analyze`, "POST"), staleTime: Infinity, retry: false });
+  const [done, setDone] = useState<string[]>([]);
+  const remind = useMutation({
+    mutationFn: (d: { label: string; date: string }) => api("/crm/tasks", "POST", { title: `${d.label} – ${file.name}`, due_date: d.date, company_id: file.company_id ?? null, notes: "Créé depuis l'analyse IA du document." }),
+    onSuccess: (_r, d) => { setDone((x) => [...x, d.date + d.label]); qc.invalidateQueries({ queryKey: ["tasks"] }); },
+  });
+  const a = q.data;
+  return (
+    <Modal title={`✨ Analyse : ${file.name}`} onClose={onClose} wide>
+      {q.isLoading ? <p className="flex items-center gap-2 py-6 text-sm text-slate-500"><span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />L'IA lit le document…</p> : q.error ? <ErrorMsg error={q.error} /> : a && (
+        <div className="space-y-4 text-sm">
+          <div><p className="font-serif text-lg text-slate-900">{a.title}</p><p className="mt-1 text-slate-600">{a.summary}</p></div>
+          <dl className="grid gap-x-4 gap-y-1 sm:grid-cols-[140px_1fr]">
+            {a.parties.length > 0 && <><dt className="text-slate-400">Parties</dt><dd>{a.parties.join(", ")}</dd></>}
+            {a.amount && <><dt className="text-slate-400">Montant</dt><dd>{a.amount}</dd></>}
+            {a.notice && <><dt className="text-slate-400">Préavis</dt><dd>{a.notice}</dd></>}
+          </dl>
+          {a.key_dates.length > 0 && (
+            <div>
+              <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Dates clés</p>
+              <ul className="divide-y divide-slate-100 rounded border border-slate-200">
+                {a.key_dates.map((d) => (
+                  <li key={d.date + d.label} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                    <span><b>{fmtDate(d.date)}</b> · {d.label}</span>
+                    {done.includes(d.date + d.label) ? <span className="text-xs text-emerald-700">✓ Rappel créé</span>
+                      : <button className="text-xs font-medium text-brand-600 hover:underline" disabled={remind.isPending} onClick={() => remind.mutate(d)}>+ Créer un rappel</button>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {a.points_attention.length > 0 && <div><p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Points d'attention</p><ul className="list-disc space-y-0.5 pl-5">{a.points_attention.map((p) => <li key={p}>{p}</li>)}</ul></div>}
+          <ErrorMsg error={remind.error} />
+          <p className="text-xs text-slate-400">Résumé généré par l'IA : vérifiez les dates importantes dans le document.</p>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 interface Folder { id: number; name: string; parent_id: number | null; files: number; folders: number }
 
 /** Chemin « RH › Contrats » d'un dossier. */
@@ -43,6 +88,7 @@ export default function Documents() {
   const [cwd, setCwd] = useState<number | null>(null); // dossier ouvert (null = racine)
   const [folderEdit, setFolderEdit] = useState<"new" | Folder | null>(null);
   const [moving, setMoving] = useState<Row | null>(null);
+  const [analyzing, setAnalyzing] = useState<Row | null>(null);
   const foldersQ = useQuery({ queryKey: ["file-folders"], queryFn: () => api<Folder[]>("/files/folders") });
   const folders = foldersQ.data ?? [];
   const crumbs = pathOf(folders, cwd);
@@ -109,10 +155,11 @@ export default function Documents() {
               <td className="py-2.5 pr-3"><button className="font-medium text-brand-600" onClick={() => downloadFile(`/files/${r.id}/download`, r.original_name)}> {r.name}</button><span className="block text-xs text-slate-400">{q && <>📁 {pathLabel(r.folder_id)} · </>}{r.original_name} · {size(r.size)}</span></td>
               <td className="pr-3"><Badge>{CATS.find(([k]) => k === r.category)?.[1] ?? r.category}</Badge></td><td className="pr-3 text-slate-500">{names[r.company_id] ?? ""}</td>
               <td className="pr-3">{r.expires_on && <Badge tone={r.expires_on < today ? "red" : "amber"}>Expire le {fmtDate(r.expires_on)}</Badge>}</td>
-              <td className="whitespace-nowrap text-right text-xs"><button className="mr-3 text-brand-600" onClick={() => setMoving(r)}>Déplacer</button><button className="text-red-500" onClick={() => confirm("Supprimer ce fichier ?") && del.mutate(r.id)}>Supprimer</button></td></tr>)}
+              <td className="whitespace-nowrap text-right text-xs">{/\.(pdf|png|jpe?g)$/i.test(r.original_name) && <button className="mr-3 font-medium text-brand-600" onClick={() => setAnalyzing(r)}>✨ Analyser</button>}<button className="mr-3 text-brand-600" onClick={() => setMoving(r)}>Déplacer</button><button className="text-red-500" onClick={() => confirm("Supprimer ce fichier ?") && del.mutate(r.id)}>Supprimer</button></td></tr>)}
           </tbody></table></TableWrap>
         )}
       </Card>
+      {analyzing && <AnalysisModal file={analyzing} onClose={() => setAnalyzing(null)} />}
       {folderEdit && <FolderModal title={folderEdit === "new" ? `Nouveau dossier dans « ${pathLabel(cwd)} »` : "Renommer le dossier"} initial={folderEdit === "new" ? "" : folderEdit.name}
         onSave={(n) => saveFolder.mutate(n)} onClose={() => setFolderEdit(null)} busy={saveFolder.isPending} error={saveFolder.error} />}
       {moving && (

@@ -3,6 +3,7 @@ import { Fragment, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Check, Project, Server, Tech, Vuln, api } from "../api";
 import { Badge, Button, Card, Empty, ErrorMsg, Field, Loading, Modal, PageHeader, StatusDot, fmtDate, fmtDateTime } from "../ui";
+import { askCopilot } from "../copilot/Copilot";
 import { ProjectFormModal } from "./Projects";
 
 const emptyServer = { label: "", provider: "", hostname: "", ip: "", os: "", location: "", specs: "", access_info: "", notes: "" };
@@ -117,6 +118,7 @@ export default function ProjectDetail() {
       <Link to="/projets" className="text-sm text-slate-500 hover:text-brand-600">← Tous les projets</Link>
       <PageHeader title={p.name} subtitle={p.description || undefined}
         action={<div className="flex flex-wrap gap-2">
+          <Button variant="soft" onClick={() => askCopilot(`Rédige le rapport mensuel du projet « ${p.name} » (id ${p.id}) pour le client : disponibilité, incidents et alertes, failles de sécurité, temps passé ce mois-ci, actions recommandées. Ton professionnel, prêt à envoyer.`)}>✨ Rapport IA</Button>
           <Button variant="soft" busy={checkNow.isPending} onClick={() => checkNow.mutate()}>Vérifier maintenant</Button>
           <Button variant="ghost" onClick={() => setEditing(true)}>Modifier</Button>
           <Button variant="danger" onClick={() => confirm(`Supprimer « ${p.name} » et tout son historique ?`) && del.mutate()}>Supprimer</Button>
