@@ -92,6 +92,7 @@ export const TOURS: Record<string, TourStep[]> = {
   ],
   expenses: [
     { target: "page-title", title: "Notes de frais", body: "Remplissez, faites signer, joignez les justificatifs : le PDF est généré et rangé dans Drive." },
+    { target: "exp-receipts", title: "Les justificatifs", body: "Ajoutez le ticket puis « ✨ Remplir avec l'IA » : date, montant, TVA et motif sont lus pour vous." },
     { target: "exp-signatures", title: "Les signatures", body: "Demandeur, président et associé." },
     { target: "card:historique", title: "L'historique", body: "Retrouvez et retéléchargez toutes les notes." },
   ],
@@ -102,6 +103,7 @@ export const TOURS: Record<string, TourStep[]> = {
   ],
   time: [
     { target: "page-title", title: "Suivi du temps", body: "Notez le temps passé par client pour mesurer leur rentabilité." },
+    { target: "time-timer", title: "Le minuteur", body: "Démarrez-le en commençant une tâche : à l'arrêt, la durée est reportée dans le formulaire." },
     { target: "card:ce-mois-ci-h", title: "Vos saisies", body: "Le temps du mois, avec le total en titre." },
   ],
   team: [

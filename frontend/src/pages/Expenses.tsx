@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { DirectoryUser, Expense, SignatureRow, Signers, User, api, isManager, postForPdf } from "../api";
+import { DirectoryUser, Expense, SignatureRow, Signers, User, api, apiUpload, isManager, postForPdf } from "../api";
 import SignaturePad from "./SignaturePad";
 import { Badge, Button, Card, Empty, ErrorMsg, Field, Loading, PageHeader, fmtDate, fmtMoney } from "../ui";
 
@@ -93,6 +93,15 @@ export default function Expenses({ user }: { user: User }) {
   const keptCount = currentFiles.length - removeIds.length + newFiles.length;
   const list = useQuery({ queryKey: ["expenses"], queryFn: () => api<Expense[]>("/expenses") });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
+  // Lecture du justificatif par l'IA : pré-remplit date, montant, TVA, motif et catégorie (à vérifier).
+  const [aiMsg, setAiMsg] = useState("");
+  const aiRead = useMutation({
+    mutationFn: (file: File) => { const fd = new FormData(); fd.append("file", file); return apiUpload<{ expense_date: string; amount_ttc: number; vat_rate: number; reason: string; category: string }>("/expenses/ai-read", fd); },
+    onSuccess: (r) => {
+      setF((x) => ({ ...x, expense_date: r.expense_date || x.expense_date, amount_ttc: r.amount_ttc || x.amount_ttc, vat_rate: r.vat_rate, reason: r.reason || x.reason, category: r.category || x.category }));
+      setAiMsg("✨ Champs pré-remplis par l'IA à partir du justificatif : vérifiez-les avant d'enregistrer.");
+    },
+  });
 
   const requester = people.data?.find((p) => p.id === f.user_id);
   const ttc = Number(f.amount_ttc) || 0;
@@ -173,6 +182,13 @@ export default function Expenses({ user }: { user: User }) {
             <Field label={`Justificatifs (${keptCount}/10)`} hint="Tickets, factures… PDF, JPG ou PNG (10 Mo max. chacun) : ajoutés à la fin du PDF, dans l'ordre">
               <input key={fileKey} type="file" multiple accept="application/pdf,image/jpeg,image/png" onChange={(e) => { const picked = Array.from(e.target.files ?? []); setNewFiles((x) => [...x, ...picked]); setFileKey((k) => k + 1); }} />
             </Field>
+            {newFiles.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Button type="button" variant="soft" busy={aiRead.isPending} onClick={() => aiRead.mutate(newFiles[newFiles.length - 1])}>✨ Remplir avec l'IA</Button>
+                <span className="text-xs text-slate-500">{aiMsg || "Lit le dernier justificatif ajouté : date, montant TTC, TVA, motif, catégorie."}</span>
+              </div>
+            )}
+            <ErrorMsg error={aiRead.error} />
             {(currentFiles.length > 0 || newFiles.length > 0) && (
               <ul className="mt-2 divide-y divide-slate-100 rounded border border-slate-200 text-sm">
                 {currentFiles.map((r) => {

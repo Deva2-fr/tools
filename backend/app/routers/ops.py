@@ -42,7 +42,7 @@ from app.schemas_ops import (
     TransactionImport,
     TransactionIn,
 )
-from app.services import links, qonto, renewals, treasury
+from app.services import doc_ai, links, qonto, renewals, treasury
 
 router = APIRouter(dependencies=[Depends(current_user)])
 
@@ -602,6 +602,19 @@ def download_file(file_id: int, db: Session = Depends(get_db)):
     return FileResponse(
         path, media_type=f.mime, filename=f.original_name, content_disposition_type="attachment"
     )
+
+
+@router.post("/files/{file_id}/ai-analyze", dependencies=[Depends(manager_user)])
+def ai_analyze_file(file_id: int, db: Session = Depends(get_db)):
+    """Résumé, dates clés et préavis d'un contrat ou document (PDF / image) lus par l'IA."""
+    f = db.get(FileRecord, file_id)
+    path = _files_dir() / f.stored_name if f else None
+    if not f or not path or not path.exists():
+        raise HTTPException(404)
+    try:
+        return doc_ai.analyze_contract(db, path.read_bytes(), Path(f.original_name).suffix)
+    except doc_ai.DocAIError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.put("/files/{file_id}/folder")

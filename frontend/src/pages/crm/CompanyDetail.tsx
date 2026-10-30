@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { Row, api } from "../../api";
 import { FormModal, defaults } from "../../components";
 import { Badge, Button, Card, Empty, ErrorMsg, Loading, PageHeader, fmtDate, fmtDateTime, fmtMoney } from "../../ui";
+import { askCopilot } from "../../copilot/Copilot";
 import { CompanyLookup } from "./CompanyLookup";
 import { STAGES, companyFields, contactFields, kindLabel, kindTone, oppFields, taskFields } from "./shared";
 
@@ -47,6 +48,7 @@ export default function CompanyDetail() {
         action={<div className="flex flex-wrap gap-2">
           {d.money_visible && <Button variant="soft" onClick={() => nav(`/facturation/nouveau?kind=quote&company=${cid}`)}>+ Devis</Button>}
           {d.money_visible && <Button variant="soft" onClick={() => nav(`/facturation/nouveau?kind=invoice&company=${cid}`)}>+ Facture</Button>}
+          <Button variant="soft" onClick={() => askCopilot(`Fais le bilan complet de la relation avec ${c.name} (société id ${cid}) : échanges et mails récents, affaires, devis et factures, paiements, temps passé, tâches. Donne un score de santé de la relation sur 10 et propose les prochaines actions.`)}>✨ Bilan IA</Button>
           <Button variant="ghost" onClick={() => setModal("company")}>Modifier</Button>
           <Button variant="danger" onClick={() => confirm(`Supprimer « ${c.name} » ? Ses contacts seront conservés.`) && delCompany.mutate()}>Supprimer</Button>
         </div>} />
