@@ -226,3 +226,78 @@ def test_not_found_lists_available_models(keyed):
 def test_connection_test_names_the_model(keyed, monkeypatch):
     monkeypatch.setattr(llm, "generate", lambda db, c, **kw: llm.Result(text="OK", model="gemini-3.5-flash"))
     assert "gemini-3.5-flash" in llm.test_connection(keyed)
+
+
+def sse(*chunks):
+    return "".join(f"data: {json.dumps(c)}\r\n\r\n" for c in chunks).encode()
+
+
+def test_stream_yields_text_then_result_and_requests_low_thinking(keyed):
+    import asyncio
+
+    integrations.put(keyed, "gemini_model", "gemini-3.5-flash")
+    call = {"functionCall": {"name": "hub_get", "args": {"path": "/billing"}}, "thoughtSignature": "sig"}
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.url.path, request.url.query, json.loads(request.content)))
+        body = sse(
+            {"candidates": [{"content": {"parts": [{"text": "Bon"}]}}]},
+            {"candidates": [{"content": {"parts": [{"text": "jour"}, call]}, "finishReason": "STOP"}]},
+            {"usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 4, "thoughtsTokenCount": 6}},
+        )
+        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+
+    async def run():
+        return [
+            item
+            async for item in llm.astream(
+                keyed, [llm.user("x")], tools=[TOOL], fast=True, transport=httpx.MockTransport(handler)
+            )
+        ]
+
+    items = asyncio.run(run())
+    assert [i for i in items if i[0] == "text"] == [("text", "Bon"), ("text", "jour")]
+    res = items[-1][1]
+    assert items[-1][0] == "result" and res.text == "Bonjour" and (res.tokens_in, res.tokens_out) == (10, 10)
+    assert res.calls[0].args == {"path": "/billing"} and res.parts[-1] == call  # signature conservée
+    path, query, body = seen[0]
+    assert path.endswith(":streamGenerateContent") and b"alt=sse" in query
+    assert body["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "low"}
+
+
+def test_stream_retries_without_thinking_when_model_refuses_it(keyed):
+    import asyncio
+
+    integrations.put(keyed, "gemini_model", "gemini-2.5-flash")
+    bodies = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        bodies.append(body)
+        if "thinkingConfig" in body["generationConfig"]:
+            return httpx.Response(400, json={"error": {"message": "Thinking budget not supported"}})
+        return httpx.Response(
+            200,
+            content=sse({"candidates": [{"content": {"parts": [{"text": "ok"}]}, "finishReason": "STOP"}]}),
+        )
+
+    async def run():
+        return [
+            i
+            async for i in llm.astream(
+                keyed, [llm.user("x")], fast=True, transport=httpx.MockTransport(handler)
+            )
+        ]
+
+    assert asyncio.run(run())[-1][1].text == "ok" and len(bodies) == 2
+
+
+def test_stream_errors_are_readable(keyed):
+    import asyncio
+
+    async def run():
+        return [i async for i in llm.astream(keyed, [llm.user("x")], transport=server(429, {}))]
+
+    with pytest.raises(llm.LLMError, match="Quota"):
+        asyncio.run(run())

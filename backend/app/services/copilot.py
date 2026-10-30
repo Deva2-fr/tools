@@ -8,7 +8,9 @@ Les secrets (mots de passe, clés, réglages d'intégration) ne sont pas accessi
 """
 
 import json
+import logging
 import re
+import time
 import uuid
 from collections.abc import AsyncIterator
 from datetime import date
@@ -22,7 +24,10 @@ from app.core.security import COOKIE_NAME
 from app.models import CopilotBrief, CopilotConversation, CopilotMessage, CopilotUsage, User
 from app.services import integrations, llm
 
+logger = logging.getLogger(__name__)
 MAX_TURNS = 12  # appels d'outils enchaînés au maximum par question
+CALL_TIMEOUT = 60  # secondes sans réponse de l'IA avant abandon
+DEADLINE = 150  # durée maximale d'une question, en secondes
 MAX_RESULT = 15000  # caractères d'un résultat d'outil renvoyés à l'IA
 HISTORY = 20  # messages précédents de la conversation renvoyés à l'IA
 PRICE_IN, PRICE_OUT = llm.PRICE_IN, llm.PRICE_OUT  # estimation du coût par jeton (≈ €)
@@ -369,13 +374,34 @@ async def chat(
         transport=transport, base_url="http://hub", cookies={COOKIE_NAME: session_token}, timeout=60
     ) as api:
         try:
-            for _ in range(MAX_TURNS):
-                res = await llm.agenerate(db, messages, system=system, tools=TOOLS, max_tokens=8000)
+            started = time.monotonic()
+            for turn in range(MAX_TURNS):
+                if time.monotonic() - started > DEADLINE:
+                    yield _sse(
+                        {"type": "error", "message": "L'IA met trop de temps : reformulez ou réessayez."}
+                    )
+                    break
+                yield _sse({"type": "status", "text": "L'IA analyse…" if not turn else f"Étape {turn + 1}…"})
+                t0, res = time.monotonic(), None
+                async for kind, value in llm.astream(
+                    db, messages, system=system, tools=TOOLS, max_tokens=8000, fast=True, timeout=CALL_TIMEOUT
+                ):
+                    if kind == "text":
+                        answer += value
+                        yield _sse({"type": "text", "text": value})
+                    else:
+                        res = value
                 tin += res.tokens_in
                 tout += res.tokens_out
-                if res.text:
-                    answer += res.text
-                    yield _sse({"type": "text", "text": res.text})
+                logger.info(
+                    "copilote tour %s : %s, %.1fs, %s→%s jetons, %s appel(s) d'outil",
+                    turn + 1,
+                    res.model,
+                    time.monotonic() - t0,
+                    res.tokens_in,
+                    res.tokens_out,
+                    len(res.calls),
+                )
                 if res.finish == "refusal":
                     yield _sse(
                         {"type": "error", "message": "Le copilote ne peut pas répondre à cette demande."}
@@ -432,6 +458,9 @@ async def chat(
                 yield _sse({"type": "error", "message": "La question demande trop d'étapes : découpez-la."})
         except llm.LLMError as exc:
             yield _sse({"type": "error", "message": str(exc)})
+        except Exception:  # noqa: BLE001 - le flux doit toujours se terminer proprement
+            logger.exception("copilote : erreur inattendue")
+            yield _sse({"type": "error", "message": "Erreur inattendue du copilote : réessayez."})
 
     if not answer.strip() and actions:
         answer = "Propositions : " + " ; ".join(a["summary"] for a in actions)

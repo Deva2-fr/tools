@@ -1,7 +1,7 @@
 import json
 
 from app.models import CopilotMessage
-from app.services import copilot, integrations
+from app.services import copilot, integrations, llm
 from tests.llm_fake import FakeLLM
 
 
@@ -117,3 +117,29 @@ def test_actions_are_built_safely():
     assert copilot.allowed_path("/crm/companies/12/overview") and not copilot.allowed_path("/integrations")
     assert not copilot.allowed_path("/users/1/summary/../../integrations")
     assert copilot._json_arg('{"q": "ovh"}') == {"q": "ovh"} and copilot._json_arg("") == {}
+
+
+def test_copilot_sends_status_and_survives_unexpected_errors(client, db, monkeypatch):
+    integrations.put(db, "gemini_api_key", "AIza-test")
+    FakeLLM(monkeypatch, turns=[{"calls": [("hub_get", {"path": "/crm/companies"})]}, {"text": "Voilà."}])
+    ev = events(client.post("/api/copilot/chat", json={"message": "Bonjour"}))
+    assert [e["text"] for e in ev if e["type"] == "status"] == ["L'IA analyse…", "Étape 2…"]
+    assert ev[-1]["type"] == "done"
+
+    async def boom(*a, **kw):
+        raise KeyError("imprévu")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(llm, "astream", boom)
+    ev = events(client.post("/api/copilot/chat", json={"message": "Encore"}))
+    assert [e["type"] for e in ev][-2:] == ["error", "done"] and "inattendue" in ev[-2]["message"]
+
+
+def test_copilot_gives_up_after_the_deadline(client, db, monkeypatch):
+    integrations.put(db, "gemini_api_key", "AIza-test")
+    FakeLLM(monkeypatch, turns=[{"calls": [("hub_get", {"path": "/crm/companies"})]}] * 3)
+    monkeypatch.setattr(copilot, "DEADLINE", -1)
+    ev = events(client.post("/api/copilot/chat", json={"message": "Bonjour"}))
+    assert (
+        any(e["type"] == "error" and "trop de temps" in e["message"] for e in ev) and ev[-1]["type"] == "done"
+    )

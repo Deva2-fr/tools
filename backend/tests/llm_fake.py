@@ -16,6 +16,7 @@ class FakeLLM:
         self.calls: list[dict] = []
         monkeypatch.setattr(llm, "generate", self._generate)
         monkeypatch.setattr(llm, "agenerate", self._agenerate)
+        monkeypatch.setattr(llm, "astream", self._astream)
 
     def _next(self, db, contents, kw) -> llm.Result:
         self.calls.append(copy.deepcopy({"contents": contents, **kw}))
@@ -40,3 +41,9 @@ class FakeLLM:
 
     async def _agenerate(self, db, contents, **kw):
         return self._next(db, contents, kw)
+
+    async def _astream(self, db, contents, **kw):
+        res = self._next(db, contents, kw)
+        for i in range(0, len(res.text), 20):  # le texte arrive par morceaux
+            yield ("text", res.text[i : i + 20])
+        yield ("result", res)
