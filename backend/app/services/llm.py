@@ -39,6 +39,10 @@ class NetworkError(LLMError):
         self.started = started
 
 
+class Unavailable(LLMError):
+    """Gemini répond 5xx (modèle surchargé, panne passagère) : on peut réessayer."""
+
+
 class ModelNotFound(LLMError):
     """Le modèle demandé n'existe pas (ou plus) pour cette clé."""
 
@@ -242,7 +246,11 @@ def _error(status: int, data: dict, model_id: str) -> LLMError:
     if status == 429:
         return LLMError("Quota ou limite de requêtes Gemini atteint : réessayez dans une minute.")
     if status >= 500:
-        return LLMError("Le service Gemini est momentanément indisponible : réessayez.")
+        detail = f" ({status} : {msg[:120]})" if msg else f" ({status})"
+        return Unavailable(
+            f"Gemini est surchargé ou indisponible pour le moment{detail} : réessayez dans quelques minutes, "
+            "ou choisissez un autre modèle dans Paramètres."
+        )
     return LLMError(f"Gemini a refusé la demande ({status}) : {msg[:160] or 'requête invalide'}")
 
 
@@ -327,6 +335,52 @@ def _retry_model(db: Session, tried: str, transport) -> str:
     )
 
 
+_ANY_FLASH = re.compile(r"^gemini-(\d+(?:\.\d+)?)-flash(-lite)?$")
+BUSY_WAITS = (2.0, 5.0)  # attentes avant de réessayer le même modèle surchargé
+
+
+def _alternative(db: Session, tried: set[str], transport) -> str | None:
+    """Autre modèle Flash de la clé (le plus récent d'abord, Lite en dernier) pour contourner une surcharge."""
+    key = integrations.get(db, "gemini_api_key") or ""
+    found = [
+        (m.group(2) is None, float(m.group(1)), name)
+        for name in available_models(key, transport)
+        if (m := _ANY_FLASH.match(name)) and name not in tried
+    ]
+    return max(found)[2] if found else None
+
+
+class _Retries:
+    """Décide quoi faire après une erreur : même modèle après une pause, autre modèle, ou abandon."""
+
+    def __init__(self, db: Session, transport):
+        self.db, self.transport = db, transport
+        self.tried: set[str] = set()
+        self.busy = 0
+        self.alts = 0
+        self.not_found = False
+
+    def after(self, exc: LLMError, model_id: str) -> tuple[str, float]:
+        self.tried.add(model_id)
+        if isinstance(exc, ModelNotFound) and not self.not_found:
+            self.not_found = True
+            return _retry_model(self.db, model_id, self.transport), 0.0
+        if isinstance(exc, Unavailable):
+            if self.busy < len(BUSY_WAITS):
+                self.busy += 1
+                logger.warning(
+                    "Gemini %s surchargé, nouvel essai dans %ss", model_id, BUSY_WAITS[self.busy - 1]
+                )
+                return model_id, BUSY_WAITS[self.busy - 1]
+            alt = _alternative(self.db, self.tried, self.transport) if self.alts < 2 else None
+            if alt:
+                self.alts += 1
+                logger.warning("Gemini %s toujours surchargé : bascule sur %s", model_id, alt)
+                self.busy = len(BUSY_WAITS) - 1  # un seul nouvel essai sur le modèle de secours
+                return alt, 0.0
+        raise exc
+
+
 def generate(
     db: Session,
     contents: list[dict],
@@ -339,8 +393,8 @@ def generate(
     timeout: float = TIMEOUT,
     transport: httpx.BaseTransport | None = None,
 ) -> Result:
-    model_id = None
-    for attempt in range(2):
+    model_id, retries = None, _Retries(db, transport)
+    while True:
         url, headers, body, model_id = _request(
             db, system, contents, tools, schema, max_tokens, model_id, transport, fast
         )
@@ -350,13 +404,11 @@ def generate(
                 res = _finish(c.post(url, headers=headers, json=body), model_id)
             res.model = model_id
             return res
-        except ModelNotFound:
-            if attempt:
-                raise
-            model_id = _retry_model(db, model_id, transport)
+        except LLMError as exc:
+            model_id, wait = retries.after(exc, model_id)
+            time.sleep(wait)
         except httpx.HTTPError as exc:
             raise _net_error(exc, model_id, timeout, False, t0) from exc
-    raise AssertionError("unreachable")
 
 
 async def agenerate(
@@ -371,8 +423,8 @@ async def agenerate(
     timeout: float = TIMEOUT,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> Result:
-    model_id = None
-    for attempt in range(2):
+    model_id, retries = None, _Retries(db, transport)
+    while True:
         url, headers, body, model_id = _request(
             db, system, contents, tools, schema, max_tokens, model_id, transport, fast
         )
@@ -382,13 +434,11 @@ async def agenerate(
                 res = _finish(await c.post(url, headers=headers, json=body), model_id)
             res.model = model_id
             return res
-        except ModelNotFound:
-            if attempt:
-                raise
-            model_id = _retry_model(db, model_id, transport)
+        except LLMError as exc:
+            model_id, wait = await asyncio.to_thread(retries.after, exc, model_id)
+            await asyncio.sleep(wait)
         except httpx.HTTPError as exc:
             raise _net_error(exc, model_id, timeout, False, t0) from exc
-    raise AssertionError("unreachable")
 
 
 def _merge_parts(parts: list[dict]) -> list[dict]:
@@ -415,7 +465,7 @@ async def astream(
 ):
     """Comme `agenerate`, mais en flux : produit ("text", morceau) au fil de l'eau, puis ("result", Result)."""
     model_id = await asyncio.to_thread(model_name, db, transport)  # appel réseau éventuel : hors boucle
-    retried_model = False
+    retries = _Retries(db, transport)
     while True:
         url, headers, body, model_id = _request(
             db, system, contents, tools, None, max_tokens, model_id, transport, fast
@@ -450,17 +500,15 @@ async def astream(
                                 parts.append(part)
                                 if part.get("text") and not part.get("thought"):
                                     yield ("text", part["text"])
-        except ModelNotFound:
-            if retried_model:
-                raise
-            retried_model = True
-            model_id = await asyncio.to_thread(_retry_model, db, model_id, transport)
-            continue
         except LLMError as exc:
             if fast and "thinking" in str(exc).lower():  # réglage de réflexion refusé par ce modèle
                 fast = False
                 continue
-            raise
+            if parts:  # réponse déjà commencée : on ne recommence pas
+                raise
+            model_id, wait = await asyncio.to_thread(retries.after, exc, model_id)
+            await asyncio.sleep(wait)
+            continue
         except httpx.HTTPError as exc:
             raise _net_error(exc, model_id, timeout, bool(parts), t0) from exc
         break
