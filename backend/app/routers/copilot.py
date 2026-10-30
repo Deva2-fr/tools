@@ -10,7 +10,7 @@ from app.core.db import SessionLocal, get_db
 from app.core.security import COOKIE_NAME, current_user
 from app.models import CopilotConversation, User
 from app.routers.auth import audit
-from app.services import copilot
+from app.services import brief, copilot
 
 router = APIRouter(prefix="/copilot", tags=["copilote"])
 
@@ -37,6 +37,12 @@ def _own(db: Session, user: User, conv_id: int) -> CopilotConversation:
 @router.get("/status")
 def status(db: Session = Depends(get_db), _: User = Depends(current_user)):
     return copilot.status(db)
+
+
+@router.get("/brief")
+def morning_brief(refresh: bool = False, db: Session = Depends(get_db), user: User = Depends(current_user)):
+    """Brief du jour (mis en cache) et suggestions d'organisation."""
+    return brief.get(db, user, refresh)
 
 
 @router.get("/conversations")

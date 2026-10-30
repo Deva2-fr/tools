@@ -1,4 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { askCopilot } from "../copilot/Copilot";
 import { Link } from "react-router-dom";
 import { User, api } from "../api";
 import { Badge, Card, Empty, Loading, PageHeader, StatusDot, fmtDate, fmtMoney } from "../ui";
@@ -13,6 +15,48 @@ interface Dash {
   pipeline: { open_count: number; forecast: number };
   finance: null | { invoiced_ht: number; outstanding: number; overdue: number; balance: number; renewals: { id: number; name: string; date: string; cost: number }[] };
   taxes_upcoming: { id: number; title: string; due_date: string; days_left: number; amount: number | null }[];
+}
+
+interface Brief { headline: string; points: string[]; ai: boolean; generated_at: string; suggestions: { kind: string; title: string; detail: string; link: string; ask: string }[] }
+
+/** Brief du jour (rédigé par l'IA) et suggestions d'organisation. */
+function MorningBrief() {
+  const qc = useQueryClient();
+  const [refreshing, setRefreshing] = useState(false);
+  const [all, setAll] = useState(false);
+  const { data } = useQuery({ queryKey: ["brief"], queryFn: () => api<Brief>("/copilot/brief"), staleTime: 10 * 60_000 });
+  if (!data) return null;
+  const refresh = async () => { setRefreshing(true); try { qc.setQueryData(["brief"], await api<Brief>("/copilot/brief?refresh=true")); } finally { setRefreshing(false); } };
+  const sugg = all ? data.suggestions : data.suggestions.slice(0, 4);
+  return (
+    <section data-tour="dash-brief" className="mb-6 overflow-hidden rounded-md border border-brand-600/25 bg-gradient-to-br from-brand-50/70 to-white">
+      <div className="flex flex-wrap items-start justify-between gap-3 px-5 pt-4">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-brand-600">✨ Brief du jour{!data.ai && " · sans IA"}</p>
+          <p className="mt-1 font-serif text-xl text-slate-900">{data.headline}</p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <button onClick={refresh} disabled={refreshing} className="rounded px-2.5 py-1 text-xs text-slate-600 ring-1 ring-slate-200 hover:bg-white disabled:opacity-50">{refreshing ? "…" : "Actualiser"}</button>
+          <button onClick={() => askCopilot("Fais-moi un point détaillé sur ma journée et propose les actions utiles.")} className="rounded bg-brand-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-700">Approfondir avec le copilote</button>
+        </div>
+      </div>
+      {data.points.length > 0 && <ul className="list-disc space-y-1 px-5 pb-4 pl-10 pt-2 text-sm text-slate-700">{data.points.map((p, i) => <li key={i}>{p}</li>)}</ul>}
+      {data.suggestions.length > 0 && (
+        <div className="border-t border-brand-600/15 bg-white/60 px-5 py-3">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Suggestions d'organisation</p>
+          <ul className="grid gap-2 md:grid-cols-2">
+            {sugg.map((s, i) => (
+              <li key={i} className="flex items-start justify-between gap-3 rounded border border-slate-200 bg-white px-3 py-2">
+                <Link to={s.link} className="min-w-0 text-sm hover:text-brand-600"><span className="block font-medium text-slate-800">{s.title}</span><span className="block text-xs text-slate-500">{s.detail}</span></Link>
+                <button onClick={() => askCopilot(s.ask)} className="shrink-0 text-xs font-medium text-brand-600 hover:underline" title="Demander au copilote">✨ Aide</button>
+              </li>
+            ))}
+          </ul>
+          {data.suggestions.length > 4 && <button onClick={() => setAll((a) => !a)} className="mt-2 text-xs text-brand-600">{all ? "Moins" : `Voir les ${data.suggestions.length} suggestions`}</button>}
+        </div>
+      )}
+    </section>
+  );
 }
 
 function Stat({ label, value, tone, to }: { label: string; value: number | string; tone: string; to: string }) {
@@ -30,6 +74,7 @@ export default function Dashboard({ user }: { user: User }) {
   return (
     <>
       <PageHeader title="Tableau de bord" subtitle="Tout ce qui demande votre attention, en un coup d'œil." />
+      <MorningBrief />
       <div data-tour="dash-tech" className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-slate-300 bg-slate-300 lg:grid-cols-4">
         <Stat label="Sites en ligne" value={`${data.projects.up}/${data.projects.total}`} tone={data.projects.down ? "text-red-700" : "text-emerald-800"} to="/projets" />
         <Stat label="Alertes ouvertes" value={data.alerts_open} tone={data.alerts_open ? "text-amber-700" : "text-slate-900"} to="/alertes" />

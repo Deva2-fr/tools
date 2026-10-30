@@ -34,9 +34,9 @@ export const TOURS: Record<string, TourStep[]> = {
   ],
   dashboard: [
     { target: "page-title", title: "Tableau de bord", body: "L'essentiel du jour en un coup d'œil. Chaque chiffre mène à la section concernée." },
+    { target: "dash-brief", title: "Le brief du jour", body: "L'IA résume chaque matin ce qui compte et suggère des actions : relances, clients silencieux, temps non facturé…" },
     { target: "dash-tech", title: "Santé technique", body: "Sites en ligne, alertes, failles et mails à répondre." },
     { target: "dash-finance", title: "Finances", body: "CA facturé, reste à encaisser, trésorerie et pipeline." },
-    { target: "card:mes-taches", title: "À faire", body: "Vos tâches, renouvellements et échéances qui arrivent." },
   ],
   companies: [
     { target: "page-title", title: "Sociétés", body: "Vos clients, prospects et fournisseurs. Cliquez sur un nom pour ouvrir sa fiche complète." },

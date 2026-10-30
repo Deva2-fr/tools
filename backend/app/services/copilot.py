@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import utcnow
 from app.core.security import COOKIE_NAME
-from app.models import CopilotConversation, CopilotMessage, User
+from app.models import CopilotBrief, CopilotConversation, CopilotMessage, User
 from app.services import integrations
 
 MODEL = "claude-opus-5-5"
@@ -194,14 +194,18 @@ def budget(db: Session) -> float:
 
 
 def spent_this_month(db: Session) -> float:
+    """Dépense estimée du mois (copilote + briefs), tous utilisateurs."""
     start = utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    tin, tout = db.execute(
-        select(
-            func.coalesce(func.sum(CopilotMessage.input_tokens), 0),
-            func.coalesce(func.sum(CopilotMessage.output_tokens), 0),
-        ).where(CopilotMessage.created_at >= start)
-    ).one()
-    return round(tin * PRICE_IN + tout * PRICE_OUT, 2)
+    tokens_in = tokens_out = 0
+    for model in (CopilotMessage, CopilotBrief):
+        tin, tout = db.execute(
+            select(
+                func.coalesce(func.sum(model.input_tokens), 0),
+                func.coalesce(func.sum(model.output_tokens), 0),
+            ).where(model.created_at >= start)
+        ).one()
+        tokens_in, tokens_out = tokens_in + tin, tokens_out + tout
+    return round(tokens_in * PRICE_IN + tokens_out * PRICE_OUT, 2)
 
 
 def status(db: Session) -> dict:

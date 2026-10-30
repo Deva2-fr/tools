@@ -84,8 +84,13 @@ function ActionCard({ action }: { action: CopilotAction }) {
   );
 }
 
+/** Ouvre le copilote et lui pose une question, depuis n'importe quelle page. */
+export function askCopilot(question: string) {
+  window.dispatchEvent(new CustomEvent("copilot:ask", { detail: question }));
+}
+
 /** Panneau du copilote : discussion avec l'IA qui lit tout le Hub. */
-export default function Copilot({ open, onClose }: { open: boolean; onClose: () => void }) {
+export default function Copilot({ open, onClose, ask, onAsked }: { open: boolean; onClose: () => void; ask?: string | null; onAsked?: () => void }) {
   const { pathname } = useLocation();
   const qc = useQueryClient();
   const [convId, setConvId] = useState<number | null>(null);
@@ -149,6 +154,10 @@ export default function Copilot({ open, onClose }: { open: boolean; onClose: () 
       qc.invalidateQueries({ queryKey: ["copilot-convs"] });
     }
   };
+
+  useEffect(() => {
+    if (open && ask && !busy) { setConvId(null); setMsgs([]); onAsked?.(); send(ask); }
+  }, [open, ask]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const load = async (id: number) => {
     const c = await api<{ id: number; messages: Msg[] }>(`/copilot/conversations/${id}`);

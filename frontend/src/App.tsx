@@ -85,6 +85,12 @@ function Shell() {
   const qc = useQueryClient();
   const [searching, setSearching] = useState(false);
   const [copilot, setCopilot] = useState(false);
+  const [ask, setAsk] = useState<string | null>(null);
+  useEffect(() => {
+    const onAsk = (e: Event) => { setAsk((e as CustomEvent<string>).detail); setCopilot(true); };
+    window.addEventListener("copilot:ask", onAsk);
+    return () => window.removeEventListener("copilot:ask", onAsk);
+  }, []);
   const [menu, setMenu] = useState(false); // tiroir de navigation (mobile / tablette)
   const { pathname } = useLocation();
   useEffect(() => setMenu(false), [pathname]);
@@ -209,7 +215,7 @@ function Shell() {
         </div>
       </main>
       {searching && <SearchPalette user={user} onClose={() => setSearching(false)} />}
-      <Copilot open={copilot} onClose={() => setCopilot(false)} />
+      <Copilot open={copilot} onClose={() => setCopilot(false)} ask={ask} onAsked={() => setAsk(null)} />
       {tour && TOURS[tour] && <Tour key={tour} steps={TOURS[tour]} onClose={() => setTour(null)} />}
     </div>
   );
