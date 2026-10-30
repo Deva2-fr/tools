@@ -5,7 +5,9 @@ Gemini, des outils éventuels et/ou un schéma JSON, et renvoient un `Result` no
 d'outils demandés, raison de fin et jetons consommés. Les erreurs sont des `LLMError` lisibles.
 """
 
+import asyncio
 import base64
+import json
 import re
 import time
 from dataclasses import dataclass, field
@@ -153,10 +155,26 @@ def clean_schema(node):
     return out
 
 
+def _thinking(model_id: str) -> dict | None:
+    """Réflexion courte (réponses plus rapides) : le réglage dépend de la génération du modèle."""
+    if model_id.startswith("gemini-3"):
+        return {"thinkingLevel": "low"}
+    if model_id.startswith("gemini-2.5"):
+        return {"thinkingBudget": 1024}
+    return None
+
+
 def _body(
-    system: str, contents: list[dict], tools: list[dict] | None, schema: dict | None, max_tokens: int
+    system: str,
+    contents: list[dict],
+    tools: list[dict] | None,
+    schema: dict | None,
+    max_tokens: int,
+    thinking: dict | None = None,
 ) -> dict:
     body: dict = {"contents": contents, "generationConfig": {"maxOutputTokens": max_tokens}}
+    if thinking:
+        body["generationConfig"]["thinkingConfig"] = thinking
     if system:
         body["systemInstruction"] = {"parts": [text_part(system)]}
     if tools:
@@ -228,7 +246,15 @@ def _parse(data: dict) -> Result:
 
 
 def _request(
-    db: Session, system, contents, tools, schema, max_tokens, model_id: str | None = None, transport=None
+    db: Session,
+    system,
+    contents,
+    tools,
+    schema,
+    max_tokens,
+    model_id: str | None = None,
+    transport=None,
+    fast: bool = False,
 ) -> tuple[str, dict, dict, str]:
     key = integrations.get(db, "gemini_api_key")
     if not key:
@@ -238,7 +264,7 @@ def _request(
     return (
         f"{API}/{model_id}:generateContent",
         headers,
-        _body(system, contents, tools, schema, max_tokens),
+        _body(system, contents, tools, schema, max_tokens, _thinking(model_id) if fast else None),
         model_id,
     )
 
@@ -324,6 +350,90 @@ async def agenerate(
         except httpx.HTTPError as exc:
             raise LLMError("Le service d'IA est injoignable pour le moment.") from exc
     raise AssertionError("unreachable")
+
+
+def _merge_parts(parts: list[dict]) -> list[dict]:
+    """Recolle les morceaux de texte consécutifs d'un flux en une seule part."""
+    out: list[dict] = []
+    for p in parts:
+        if out and set(p) == {"text"} and set(out[-1]) == {"text"}:
+            out[-1] = {"text": out[-1]["text"] + p["text"]}
+        else:
+            out.append(p)
+    return out
+
+
+async def astream(
+    db: Session,
+    contents: list[dict],
+    *,
+    system: str = "",
+    tools: list[dict] | None = None,
+    max_tokens: int = 8000,
+    fast: bool = False,
+    timeout: float = TIMEOUT,
+    transport: httpx.AsyncBaseTransport | None = None,
+):
+    """Comme `agenerate`, mais en flux : produit ("text", morceau) au fil de l'eau, puis ("result", Result)."""
+    model_id = await asyncio.to_thread(model_name, db, transport)  # appel réseau éventuel : hors boucle
+    retried_model = False
+    while True:
+        url, headers, body, model_id = _request(
+            db, system, contents, tools, None, max_tokens, model_id, transport, fast
+        )
+        url = url.replace(":generateContent", ":streamGenerateContent?alt=sse")
+        parts: list[dict] = []
+        usage: dict = {}
+        reason, blocked = None, None
+        try:
+            async with httpx.AsyncClient(timeout=timeout, transport=transport) as c:
+                async with c.stream("POST", url, headers=headers, json=body) as resp:
+                    if resp.status_code >= 400:
+                        await resp.aread()
+                        try:
+                            data = resp.json()
+                        except ValueError:
+                            data = {}
+                        raise _error(resp.status_code, data, model_id)
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        try:
+                            chunk = json.loads(line[5:])
+                        except ValueError:
+                            continue
+                        blocked = blocked or (chunk.get("promptFeedback") or {}).get("blockReason")
+                        usage = chunk.get("usageMetadata") or usage
+                        for cand in (chunk.get("candidates") or [])[:1]:
+                            reason = cand.get("finishReason") or reason
+                            for part in (cand.get("content") or {}).get("parts") or []:
+                                parts.append(part)
+                                if part.get("text") and not part.get("thought"):
+                                    yield ("text", part["text"])
+        except ModelNotFound:
+            if retried_model:
+                raise
+            retried_model = True
+            model_id = await asyncio.to_thread(_retry_model, db, model_id, transport)
+            continue
+        except LLMError as exc:
+            if fast and "thinking" in str(exc).lower():  # réglage de réflexion refusé par ce modèle
+                fast = False
+                continue
+            raise
+        except httpx.HTTPError as exc:
+            raise LLMError("Le service d'IA est injoignable ou trop lent : réessayez.") from exc
+        break
+    data = {
+        "candidates": [{"content": {"parts": _merge_parts(parts)}, "finishReason": reason or "STOP"}]
+        if parts or reason
+        else [],
+        "usageMetadata": usage,
+        "promptFeedback": {"blockReason": blocked} if blocked else {},
+    }
+    res = _parse(data)
+    res.model = model_id
+    yield ("result", res)
 
 
 def test_connection(db: Session) -> str:

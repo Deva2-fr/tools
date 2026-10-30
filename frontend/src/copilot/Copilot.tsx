@@ -5,7 +5,7 @@ import { api } from "../api";
 import { cx } from "../ui";
 
 export interface CopilotAction { id: string; kind: string; label: string; summary: string; method: string; path: string; body: Record<string, unknown> }
-interface Msg { role: "user" | "assistant"; content: string; actions: CopilotAction[]; tools?: string[]; error?: string }
+interface Msg { role: "user" | "assistant"; content: string; actions: CopilotAction[]; tools?: string[]; status?: string; error?: string }
 interface Status { configured: boolean; budget: number; spent: number }
 
 const SUGGESTIONS = [
@@ -128,7 +128,7 @@ export default function Copilot({ open, onClose, ask, onAsked }: { open: boolean
       if (!res.ok || !res.body) throw new Error(res.status === 401 ? "Session expirée : reconnectez-vous." : `Erreur ${res.status}`);
       const reader = res.body.getReader();
       const dec = new TextDecoder();
-      let buf = "";
+      let buf = "", finished = false;
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -140,12 +140,15 @@ export default function Copilot({ open, onClose, ask, onAsked }: { open: boolean
           if (!line.startsWith("data: ")) continue;
           const ev = JSON.parse(line.slice(6));
           if (ev.type === "conversation") setConvId(ev.id);
+          else if (ev.type === "status") patchLast((m) => ({ ...m, status: ev.text }));
+          else if (ev.type === "done") finished = true;
           else if (ev.type === "text") patchLast((m) => ({ ...m, content: m.content + ev.text }));
           else if (ev.type === "tool") patchLast((m) => ({ ...m, tools: [...(m.tools ?? []), `${ev.label}${ev.detail ? ` · ${ev.detail}` : ""}`] }));
           else if (ev.type === "action") patchLast((m) => ({ ...m, actions: [...m.actions, ev.action] }));
           else if (ev.type === "error") patchLast((m) => ({ ...m, error: ev.message }));
         }
       }
+      if (!finished) patchLast((m) => (m.error ? m : { ...m, error: "Connexion interrompue : réessayez." }));
     } catch (e) {
       patchLast((m) => ({ ...m, error: e instanceof Error ? e.message : String(e) }));
     } finally {
@@ -216,7 +219,7 @@ export default function Copilot({ open, onClose, ask, onAsked }: { open: boolean
                       {m.tools!.map((t, k) => <span key={k} className="rounded-full bg-stone-100 px-2 py-0.5 text-[11px] text-slate-500">🔎 {t}</span>)}
                     </div>
                   )}
-                  {m.content ? <Markdown text={m.content} /> : busy && i === msgs.length - 1 && !m.error && <p className="flex items-center gap-2 text-slate-400"><span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />Réflexion…</p>}
+                  {m.content ? <Markdown text={m.content} /> : busy && i === msgs.length - 1 && !m.error && <p className="flex items-center gap-2 text-slate-400"><span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />{m.status ?? "Réflexion…"}</p>}
                   {m.actions.map((a) => <Fragment key={a.id}><ActionCard action={a} /></Fragment>)}
                   {m.error && <p className="mt-1 rounded bg-red-50 px-3 py-2 text-xs text-red-700">{m.error}</p>}
                 </div>
