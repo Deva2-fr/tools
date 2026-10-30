@@ -85,7 +85,7 @@ FIELDS: list[Field] = [
         "gemini_model",
         "Modèle Gemini",
         "ai",
-        "Vide = gemini-2.5-flash (rapide, économique). Pour plus de finesse : gemini-2.5-pro",
+        "Vide = le Flash le plus récent disponible pour votre clé (rapide, économique). Pour plus de finesse : un modèle « Pro »",
     ),
     Field(
         "copilot_monthly_budget",

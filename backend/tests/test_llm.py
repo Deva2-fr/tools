@@ -19,7 +19,7 @@ TOOL = {
 
 def server(status=200, body=None, seen=None):
     def handler(request: httpx.Request) -> httpx.Response:
-        if seen is not None:
+        if seen is not None and request.method == "POST":
             seen.append((request, json.loads(request.content)))
         return httpx.Response(status, json=body or {})
 
@@ -35,6 +35,11 @@ def reply(parts, finish="STOP", prompt=120, out=30, thoughts=0):
             "thoughtsTokenCount": thoughts,
         },
     }
+
+
+@pytest.fixture(autouse=True)
+def _reset_model_cache():
+    llm._auto.clear()
 
 
 @pytest.fixture()
@@ -53,7 +58,7 @@ def test_request_shape_and_text_response(keyed):
         transport=server(body=reply([{"text": '{"a": "x"}'}], thoughts=50), seen=seen),
     )
     req, body = seen[0]
-    assert req.url.path == "/v1beta/models/gemini-2.5-flash:generateContent"
+    assert req.url.path == "/v1beta/models/gemini-3.5-flash:generateContent"
     assert req.headers["x-goog-api-key"] == "AIza-test"
     assert body["systemInstruction"]["parts"][0]["text"] == "Tu es utile."
     cfg = body["generationConfig"]
@@ -150,3 +155,74 @@ def test_missing_key_and_network_error_and_async(db):
         llm.agenerate(db, [llm.user("x")], transport=server(body=reply([{"text": "async ok"}])))
     )
     assert res.text == "async ok"
+
+
+def listing(*names):
+    return {
+        "models": [{"name": f"models/{n}", "supportedGenerationMethods": ["generateContent"]} for n in names]
+        + [{"name": "models/embedding-001", "supportedGenerationMethods": ["embedContent"]}]
+    }
+
+
+def test_pick_default_takes_latest_stable_flash():
+    names = [
+        "gemini-2.5-flash",
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-3.6-flash-preview",
+        "gemini-3.5-pro",
+        "gemini-3.1-flash-image",
+    ]
+    assert llm.pick_default(names) == "gemini-3.5-flash"
+    assert llm.pick_default(["gemini-3.5-pro"]) is None
+
+
+def test_model_is_chosen_from_the_keys_model_list(keyed):
+    posted = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            assert request.headers["x-goog-api-key"] == "AIza-test"
+            return httpx.Response(200, json=listing("gemini-2.5-flash", "gemini-4.0-flash", "gemini-4.0-pro"))
+        posted.append(request.url.path)
+        return httpx.Response(200, json=reply([{"text": "ok"}]))
+
+    transport = httpx.MockTransport(handler)
+    res = llm.generate(keyed, [llm.user("x")], transport=transport)
+    llm.generate(keyed, [llm.user("x")], transport=transport)
+    assert res.model == "gemini-4.0-flash" and posted[0].endswith("/gemini-4.0-flash:generateContent")
+    assert len(posted) == 2
+
+
+def test_removed_saved_model_falls_back_to_available_one(keyed):
+    integrations.put(keyed, "gemini_model", "gemini-2.5-flash")
+    posted = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json=listing("gemini-3.5-flash"))
+        posted.append(request.url.path.rsplit("/", 1)[-1])
+        if "2.5" in request.url.path:
+            return httpx.Response(404, json={"error": {"message": "not found"}})
+        return httpx.Response(200, json=reply([{"text": "ok"}]))
+
+    res = llm.generate(keyed, [llm.user("x")], transport=httpx.MockTransport(handler))
+    assert res.text == "ok" and res.model == "gemini-3.5-flash"
+    assert posted == ["gemini-2.5-flash:generateContent", "gemini-3.5-flash:generateContent"]
+
+
+def test_not_found_lists_available_models(keyed):
+    integrations.put(keyed, "gemini_model", "gemini-9-flash")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json=listing("gemini-3.5-pro"))
+        return httpx.Response(404, json={"error": {"message": "not found"}})
+
+    with pytest.raises(llm.LLMError, match=r"gemini-9-flash.*Modèles disponibles : gemini-3\.5-pro"):
+        llm.generate(keyed, [llm.user("x")], transport=httpx.MockTransport(handler))
+
+
+def test_connection_test_names_the_model(keyed, monkeypatch):
+    monkeypatch.setattr(llm, "generate", lambda db, c, **kw: llm.Result(text="OK", model="gemini-3.5-flash"))
+    assert "gemini-3.5-flash" in llm.test_connection(keyed)
