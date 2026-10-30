@@ -78,8 +78,14 @@ FIELDS: list[Field] = [
         "anthropic_api_key",
         "Clé API Anthropic (Claude)",
         "ai",
-        "console.anthropic.com > API Keys : sert à améliorer les devis avec l'IA",
+        "console.anthropic.com > API Keys : copilote du Hub et amélioration des devis",
         secret=True,
+    ),
+    Field(
+        "copilot_monthly_budget",
+        "Budget mensuel du copilote (€)",
+        "ai",
+        "Plafond de dépense estimé par mois (tous utilisateurs). Vide = 50 €. 0 = copilote désactivé.",
     ),
     # Ma société : imprimé sur les devis, factures et notes de frais.
     Field("company_name", "Raison sociale", "company", "Ex : DEVA2"),

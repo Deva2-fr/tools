@@ -26,6 +26,7 @@ import Companies from "./pages/crm/Companies";
 import Contacts from "./pages/crm/Contacts";
 import Pipeline from "./pages/crm/Pipeline";
 import Tasks from "./pages/crm/Tasks";
+import Copilot from "./copilot/Copilot";
 import Tour from "./tour/Tour";
 import { TOURS, isFirstSession, markTourSeen, startFirstSession, tourKey, tourSeen } from "./tour/tours";
 import { Loading, cx } from "./ui";
@@ -83,6 +84,7 @@ function SearchPalette({ user, onClose }: { user: User; onClose: () => void }) {
 function Shell() {
   const qc = useQueryClient();
   const [searching, setSearching] = useState(false);
+  const [copilot, setCopilot] = useState(false);
   const [menu, setMenu] = useState(false); // tiroir de navigation (mobile / tablette)
   const { pathname } = useLocation();
   useEffect(() => setMenu(false), [pathname]);
@@ -112,7 +114,11 @@ function Shell() {
   }, [uid, pathname, tour, firstLogin]);
   const startGuide = () => { setMenu(false); setTour(tourKey(pathname) ?? "welcome"); };
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setSearching((s) => !s); } };
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key.toLowerCase() === "k") { e.preventDefault(); setSearching((s) => !s); }
+      if (e.key.toLowerCase() === "j") { e.preventDefault(); setCopilot((s) => !s); }
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
@@ -131,6 +137,7 @@ function Shell() {
         <button data-tour="nav" onClick={() => setMenu(true)} className="-ml-1 rounded p-1.5 text-xl leading-none hover:bg-white/10" aria-label="Ouvrir le menu">☰</button>
         <Link to="/" className="font-serif text-lg font-semibold tracking-tight text-stone-50">Deva2</Link>
         <button data-tour="search" onClick={() => setSearching(true)} className="ml-auto rounded border border-stone-700 px-3 py-1 text-sm text-stone-400" aria-label="Rechercher">Rechercher…</button>
+        <button data-tour="copilot" onClick={() => setCopilot(true)} className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-sm text-emerald-300" aria-label="Copilote IA" title="Copilote IA">✨</button>
         <button data-tour="guide" onClick={startGuide} className="rounded-full border border-stone-600 px-2.5 py-0.5 text-sm font-semibold text-stone-300" aria-label="Guide de la page" title="Guide de la page">?</button>
       </header>
       {menu && <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setMenu(false)} />}
@@ -144,6 +151,9 @@ function Shell() {
         </div>
         <button data-tour="search" onClick={() => setSearching(true)} className="mx-3 mb-2 hidden items-center justify-between rounded border border-stone-700 px-3 py-1.5 text-sm text-stone-400 hover:border-stone-500 lg:flex">
           <span>Rechercher…</span><kbd className="rounded bg-stone-800 px-1.5 text-xs text-stone-400">⌘K</kbd>
+        </button>
+        <button data-tour="copilot" onClick={() => setCopilot(true)} className="mx-3 mb-2 hidden items-center justify-between rounded bg-emerald-500/10 px-3 py-1.5 text-sm font-medium text-emerald-200 ring-1 ring-emerald-500/30 hover:bg-emerald-500/20 lg:flex">
+          <span>✨ Copilote IA</span><kbd className="rounded bg-stone-800 px-1.5 text-xs text-stone-400">⌘J</kbd>
         </button>
         <button data-tour="guide" onClick={startGuide} className="mx-3 mb-3 hidden items-center gap-2 rounded px-3 py-1 text-left text-xs text-stone-400 hover:bg-white/5 hover:text-stone-100 lg:flex">
           <span className="flex h-4 w-4 items-center justify-center rounded-full border border-stone-500 text-[10px] font-bold">?</span> Guide de cette page
@@ -199,6 +209,7 @@ function Shell() {
         </div>
       </main>
       {searching && <SearchPalette user={user} onClose={() => setSearching(false)} />}
+      <Copilot open={copilot} onClose={() => setCopilot(false)} />
       {tour && TOURS[tour] && <Tour key={tour} steps={TOURS[tour]} onClose={() => setTour(null)} />}
     </div>
   );
