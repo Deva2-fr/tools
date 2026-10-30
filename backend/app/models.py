@@ -680,3 +680,17 @@ class CopilotMessage(Base):
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
     conversation: Mapped[CopilotConversation] = relationship(back_populates="messages")
+
+
+class CopilotBrief(Base):
+    """Brief du matin rédigé par l'IA, mis en cache une fois par jour et par utilisateur."""
+
+    __tablename__ = "copilot_briefs"
+    __table_args__ = (UniqueConstraint("user_id", "day", name="uq_copilot_briefs_user_day"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    day: Mapped[date] = mapped_column(Date)
+    content: Mapped[str] = mapped_column(Text, default="")
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
