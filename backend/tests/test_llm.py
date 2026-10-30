@@ -38,8 +38,9 @@ def reply(parts, finish="STOP", prompt=120, out=30, thoughts=0):
 
 
 @pytest.fixture(autouse=True)
-def _reset_model_cache():
+def _reset_model_cache(monkeypatch):
     llm._auto.clear()
+    monkeypatch.setattr(llm, "BUSY_WAITS", (0, 0))
 
 
 @pytest.fixture()
@@ -339,3 +340,52 @@ def test_connection_reports_both_calls(keyed, monkeypatch):
     monkeypatch.setattr(llm, "astream", broken)
     with pytest.raises(llm.LLMError, match="le flux échoue"):
         llm.test_connection(keyed)
+
+
+def test_overloaded_model_is_retried_then_replaced(keyed):
+    integrations.put(keyed, "gemini_model", "gemini-3.5-flash")
+    posted = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(
+                200, json=listing("gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.5-pro")
+            )
+        model = request.url.path.rsplit("/", 1)[-1].split(":")[0]
+        posted.append(model)
+        if model == "gemini-3.5-flash":
+            return httpx.Response(503, json={"error": {"message": "The model is overloaded."}})
+        return httpx.Response(200, json=reply([{"text": "ok"}]))
+
+    res = llm.generate(keyed, [llm.user("x")], transport=httpx.MockTransport(handler))
+    assert res.text == "ok" and res.model == "gemini-3.5-flash-lite"
+    assert posted == ["gemini-3.5-flash"] * 3 + ["gemini-3.5-flash-lite"]
+
+
+def test_overload_error_shows_googles_reason(keyed):
+    body = {"error": {"message": "The model is overloaded."}}
+    with pytest.raises(llm.Unavailable, match=r"surchargé.*503 : The model is overloaded"):
+        llm.generate(keyed, [llm.user("x")], transport=server(503, body))
+
+
+def test_stream_retries_overloaded_model(keyed):
+    import asyncio
+
+    integrations.put(keyed, "gemini_model", "gemini-3.5-flash")
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json=listing("gemini-3.5-flash"))
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(503, json={"error": {"message": "overloaded"}})
+        return httpx.Response(
+            200,
+            content=sse({"candidates": [{"content": {"parts": [{"text": "ok"}]}, "finishReason": "STOP"}]}),
+        )
+
+    async def run():
+        return [i async for i in llm.astream(keyed, [llm.user("x")], transport=httpx.MockTransport(handler))]
+
+    assert asyncio.run(run())[-1][1].text == "ok" and len(calls) == 2
