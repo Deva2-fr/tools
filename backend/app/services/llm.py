@@ -6,6 +6,8 @@ d'outils demandés, raison de fin et jetons consommés. Les erreurs sont des `LL
 """
 
 import base64
+import re
+import time
 from dataclasses import dataclass, field
 
 import httpx
@@ -14,14 +16,19 @@ from sqlalchemy.orm import Session
 from app.services import integrations
 
 API = "https://generativelanguage.googleapis.com/v1beta/models"
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.5-flash"  # secours si la liste des modèles de la clé est injoignable
 TIMEOUT = 120
+AUTO_TTL = 6 * 3600
 # Estimation de coût (≈ €) par jeton pour Gemini Flash : sert au budget mensuel, pas à la facturation.
 PRICE_IN, PRICE_OUT = 0.30 / 1_000_000, 2.50 / 1_000_000
 
 
 class LLMError(RuntimeError):
     """Erreur affichable telle quelle."""
+
+
+class ModelNotFound(LLMError):
+    """Le modèle demandé n'existe pas (ou plus) pour cette clé."""
 
 
 @dataclass
@@ -38,14 +45,54 @@ class Result:
     finish: str = "stop"  # stop | max_tokens | refusal | error
     tokens_in: int = 0
     tokens_out: int = 0
+    model: str = ""  # modèle réellement utilisé
 
 
 def configured(db: Session) -> bool:
     return bool(integrations.get(db, "gemini_api_key"))
 
 
-def model_name(db: Session) -> str:
-    return (integrations.get(db, "gemini_model") or "").strip() or DEFAULT_MODEL
+_auto: dict[str, tuple[float, str]] = {}  # clé API -> (instant, modèle choisi)
+_FLASH = re.compile(r"^gemini-(\d+(?:\.\d+)?)-flash$")
+
+
+def available_models(key: str, transport: httpx.BaseTransport | None = None) -> list[str]:
+    """Modèles de la clé qui savent générer du texte (noms sans le préfixe « models/ »)."""
+    try:
+        with httpx.Client(timeout=20, transport=transport) as c:
+            resp = c.get(API, headers={"x-goog-api-key": key}, params={"pageSize": 200})
+        data = resp.json() if resp.status_code < 400 else {}
+    except (httpx.HTTPError, ValueError):
+        return []
+    return [
+        m["name"].removeprefix("models/")
+        for m in data.get("models", [])
+        if "generateContent" in (m.get("supportedGenerationMethods") or [])
+    ]
+
+
+def pick_default(models: list[str]) -> str | None:
+    """Le « flash » stable le plus récent (ni lite, ni preview, ni image, ni audio)."""
+    found = [(float(m.group(1)), name) for name in models if (m := _FLASH.match(name))]
+    return max(found)[1] if found else None
+
+
+def auto_model(key: str, transport: httpx.BaseTransport | None = None, refresh: bool = False) -> str:
+    cached = _auto.get(key)
+    if cached and not refresh and time.time() - cached[0] < AUTO_TTL:
+        return cached[1]
+    picked = pick_default(available_models(key, transport))
+    if not picked:
+        return DEFAULT_MODEL  # liste injoignable : on ne mémorise pas ce repli
+    _auto[key] = (time.time(), picked)
+    return picked
+
+
+def model_name(db: Session, transport: httpx.BaseTransport | None = None) -> str:
+    chosen = (integrations.get(db, "gemini_model") or "").strip()
+    if chosen:
+        return chosen
+    return auto_model(integrations.get(db, "gemini_api_key") or "", transport)
 
 
 def text_part(text: str) -> dict:
@@ -140,7 +187,7 @@ def _error(status: int, data: dict, model_id: str) -> LLMError:
             "La clé API Gemini est refusée : vérifiez-la dans Paramètres > Intégrations > Assistant IA."
         )
     if status == 404:
-        return LLMError(f"Modèle Gemini « {model_id} » introuvable : vérifiez le réglage dans Paramètres.")
+        return ModelNotFound(f"Modèle Gemini « {model_id} » introuvable pour cette clé.")
     if status == 429:
         return LLMError("Quota ou limite de requêtes Gemini atteint : réessayez dans une minute.")
     if status >= 500:
@@ -180,11 +227,13 @@ def _parse(data: dict) -> Result:
     return res
 
 
-def _request(db: Session, system, contents, tools, schema, max_tokens) -> tuple[str, dict, dict, str]:
+def _request(
+    db: Session, system, contents, tools, schema, max_tokens, model_id: str | None = None, transport=None
+) -> tuple[str, dict, dict, str]:
     key = integrations.get(db, "gemini_api_key")
     if not key:
         raise LLMError("Renseignez la clé API Gemini (Paramètres > Intégrations > Assistant IA).")
-    model_id = model_name(db)
+    model_id = model_id or model_name(db, transport)
     headers = {"x-goog-api-key": key, "Content-Type": "application/json"}
     return (
         f"{API}/{model_id}:generateContent",
@@ -204,6 +253,21 @@ def _finish(resp: httpx.Response, model_id: str) -> Result:
     return _parse(data)
 
 
+def _retry_model(db: Session, tried: str, transport) -> str:
+    """Après un 404 : cherche un autre modèle utilisable pour cette clé, sinon explique lesquels existent."""
+    key = integrations.get(db, "gemini_api_key") or ""
+    models = available_models(key, transport)
+    picked = pick_default(models)
+    if picked and picked != tried:
+        _auto[key] = (time.time(), picked)
+        return picked
+    shown = ", ".join(sorted(models)[:12]) or "aucun (liste indisponible)"
+    raise ModelNotFound(
+        f"Modèle Gemini « {tried} » introuvable pour cette clé. Modèles disponibles : {shown}. "
+        "Choisissez-en un dans Paramètres > Intégrations > Assistant IA."
+    )
+
+
 def generate(
     db: Session,
     contents: list[dict],
@@ -214,12 +278,23 @@ def generate(
     max_tokens: int = 8000,
     transport: httpx.BaseTransport | None = None,
 ) -> Result:
-    url, headers, body, model_id = _request(db, system, contents, tools, schema, max_tokens)
-    try:
-        with httpx.Client(timeout=TIMEOUT, transport=transport) as c:
-            return _finish(c.post(url, headers=headers, json=body), model_id)
-    except httpx.HTTPError as exc:
-        raise LLMError("Le service d'IA est injoignable pour le moment.") from exc
+    model_id = None
+    for attempt in range(2):
+        url, headers, body, model_id = _request(
+            db, system, contents, tools, schema, max_tokens, model_id, transport
+        )
+        try:
+            with httpx.Client(timeout=TIMEOUT, transport=transport) as c:
+                res = _finish(c.post(url, headers=headers, json=body), model_id)
+            res.model = model_id
+            return res
+        except ModelNotFound:
+            if attempt:
+                raise
+            model_id = _retry_model(db, model_id, transport)
+        except httpx.HTTPError as exc:
+            raise LLMError("Le service d'IA est injoignable pour le moment.") from exc
+    raise AssertionError("unreachable")
 
 
 async def agenerate(
@@ -232,16 +307,27 @@ async def agenerate(
     max_tokens: int = 8000,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> Result:
-    url, headers, body, model_id = _request(db, system, contents, tools, schema, max_tokens)
-    try:
-        async with httpx.AsyncClient(timeout=TIMEOUT, transport=transport) as c:
-            return _finish(await c.post(url, headers=headers, json=body), model_id)
-    except httpx.HTTPError as exc:
-        raise LLMError("Le service d'IA est injoignable pour le moment.") from exc
+    model_id = None
+    for attempt in range(2):
+        url, headers, body, model_id = _request(
+            db, system, contents, tools, schema, max_tokens, model_id, transport
+        )
+        try:
+            async with httpx.AsyncClient(timeout=TIMEOUT, transport=transport) as c:
+                res = _finish(await c.post(url, headers=headers, json=body), model_id)
+            res.model = model_id
+            return res
+        except ModelNotFound:
+            if attempt:
+                raise
+            model_id = _retry_model(db, model_id, transport)
+        except httpx.HTTPError as exc:
+            raise LLMError("Le service d'IA est injoignable pour le moment.") from exc
+    raise AssertionError("unreachable")
 
 
 def test_connection(db: Session) -> str:
     res = generate(db, [user("Réponds uniquement : OK")], max_tokens=50)
     if res.finish in ("refusal", "error"):
         raise LLMError("Gemini n'a pas pu répondre : vérifiez le modèle choisi.")
-    return f"Connexion OK – modèle {model_name(db)} prêt."
+    return f"Connexion OK – modèle {res.model} prêt."
