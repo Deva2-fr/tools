@@ -8,6 +8,14 @@ export function tourSeen(key: string, uid: number): boolean {
 export function markTourSeen(key: string, uid: number): void {
   try { localStorage.setItem(`${PREFIX}${key}.${uid}`, "1"); } catch { /* stockage indisponible */ }
 }
+/** Les guides ne se lancent seuls que pendant la toute première session (onglet) de l'utilisateur. */
+const FIRST_SESSION = "deva2.tour.firstSession";
+export function isFirstSession(): boolean {
+  try { return sessionStorage.getItem(FIRST_SESSION) === "1"; } catch { return false; }
+}
+export function startFirstSession(): void {
+  try { sessionStorage.setItem(FIRST_SESSION, "1"); } catch { /* stockage indisponible */ }
+}
 export function resetTours(uid: number): void {
   try {
     Object.keys(localStorage).filter((k) => k.startsWith(PREFIX) && k.endsWith(`.${uid}`)).forEach((k) => localStorage.removeItem(k));
@@ -101,7 +109,8 @@ export const TOURS: Record<string, TourStep[]> = {
   ],
   documents: [
     { target: "page-title", title: "Documents", body: "Le coffre de l'entreprise : Kbis, statuts, contrats, assurances." },
-    { target: "card:fichiers", title: "Les fichiers", body: "Ajoutez une date d'expiration : le Hub vous prévient avant." },
+    { target: "docs-new-folder", title: "Les dossiers", body: "Créez des dossiers (et sous-dossiers) pour ranger vos documents ; « Déplacer » change un fichier de dossier." },
+    { target: "card:fichiers", title: "Les fichiers", body: "Le fichier téléversé va dans le dossier ouvert. Ajoutez une date d'expiration : le Hub vous prévient avant." },
   ],
   access: [
     { target: "page-title", title: "Registre des accès", body: "Qui a accès à quoi, et où est rangé le mot de passe (jamais le mot de passe lui-même)." },

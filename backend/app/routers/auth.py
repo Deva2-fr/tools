@@ -71,6 +71,13 @@ def me(user: User = Depends(current_user)):
     return user
 
 
+@router.post("/me/tours-done", status_code=204)
+def tours_done(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Première session vue : les guides ne se lanceront plus tout seuls (bouton « ? » toujours dispo)."""
+    user.tours_done = True
+    db.commit()
+
+
 @router.post("/password")
 def change_password(body: PasswordChange, user: User = Depends(current_user), db: Session = Depends(get_db)):
     if not verify_password(user.password_hash, body.current_password):

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { resetTours } from "../tour/tours";
+import { resetTours, startFirstSession } from "../tour/tours";
 import { SignatureRow, User, api } from "../api";
 import { Badge, Card, Empty, ErrorMsg, Loading, PageHeader, fmtDate, fmtMoney } from "../ui";
 
@@ -110,7 +110,7 @@ export default function Profile({ me }: { me: User }) {
       <Signatures userId={u.id} />
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
         <p>Compte créé le {fmtDate(u.created_at)}.</p>
-        {u.id === me.id && <button data-tour="reset-guides" className="text-brand-600 hover:underline" onClick={() => { resetTours(me.id); setGuides(true); }}>{guides ? "Guides réactivés : ils se relanceront à la prochaine visite de chaque section." : "Revoir tous les guides"}</button>}
+        {u.id === me.id && <button data-tour="reset-guides" className="text-brand-600 hover:underline" onClick={() => { resetTours(me.id); startFirstSession(); setGuides(true); }}>{guides ? "Guides réactivés : ils se relanceront à la visite de chaque section." : "Revoir tous les guides"}</button>}
       </div>
     </>
   );

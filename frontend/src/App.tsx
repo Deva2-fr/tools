@@ -27,7 +27,7 @@ import Contacts from "./pages/crm/Contacts";
 import Pipeline from "./pages/crm/Pipeline";
 import Tasks from "./pages/crm/Tasks";
 import Tour from "./tour/Tour";
-import { TOURS, markTourSeen, tourKey, tourSeen } from "./tour/tours";
+import { TOURS, isFirstSession, markTourSeen, startFirstSession, tourKey, tourSeen } from "./tour/tours";
 import { Loading, cx } from "./ui";
 
 interface NavItem { to: string; label: string; end?: boolean; manager?: boolean }
@@ -93,16 +93,23 @@ function Shell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [menu]);
   const me = useQuery({ queryKey: ["me"], queryFn: () => api<User>("/auth/me"), retry: false });
-  // Guide interactif : celui d'accueil la toute première fois, puis celui de chaque section à sa 1re visite.
+  // Guide interactif : uniquement pendant la toute première session de l'utilisateur (celui d'accueil,
+  // puis celui de chaque section à sa 1re visite). Ensuite plus rien d'automatique : bouton « ? ».
   const [tour, setTour] = useState<string | null>(null);
   const uid = me.data?.id;
+  const firstLogin = me.data?.tours_done === false;
   useEffect(() => {
-    if (!uid || tour) return;
+    if (!firstLogin) return;
+    startFirstSession();
+    api("/auth/me/tours-done", "POST").catch(() => undefined);
+  }, [firstLogin]);
+  useEffect(() => {
+    if (!uid || tour || !isFirstSession()) return;
     const key = !tourSeen("welcome", uid) ? "welcome" : tourKey(pathname);
     if (!key || tourSeen(key, uid)) return;
     const t = window.setTimeout(() => { markTourSeen(key, uid); setTour(key); }, 1200); // laisse la page se charger
     return () => window.clearTimeout(t);
-  }, [uid, pathname, tour]);
+  }, [uid, pathname, tour, firstLogin]);
   const startGuide = () => { setMenu(false); setTour(tourKey(pathname) ?? "welcome"); };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setSearching((s) => !s); } };

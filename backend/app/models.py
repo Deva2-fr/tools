@@ -27,6 +27,8 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     totp_secret_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
     totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Guides interactifs : lancés automatiquement pendant la toute première session seulement.
+    tours_done: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
@@ -599,6 +601,19 @@ class ChecklistItem(Base):
 
 
 # ======================= Documents & accès =======================
+class DocumentFolder(Base):
+    """Dossier de la page Documents (sous-dossiers possibles). Le nom est unique parmi ses frères."""
+
+    __tablename__ = "document_folders"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("document_folders.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    created_by: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 class FileRecord(Base):
     __tablename__ = "file_records"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -616,6 +631,9 @@ class FileRecord(Base):
     project_id: Mapped[int | None] = mapped_column(
         ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
     )
+    folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("document_folders.id", ondelete="SET NULL"), nullable=True, index=True
+    )  # vide = racine
     expires_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str] = mapped_column(String(500), default="")
     uploaded_by: Mapped[str] = mapped_column(String(255), default="")

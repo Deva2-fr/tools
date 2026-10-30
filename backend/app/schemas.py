@@ -22,6 +22,7 @@ class UserOut(ORM):
     role: str
     is_active: bool
     totp_enabled: bool
+    tours_done: bool = False
 
 
 class UserCreate(BaseModel):
