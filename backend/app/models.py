@@ -195,6 +195,9 @@ class MailMessage(Base):
     received_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
     auto_tag: Mapped[str] = mapped_column(String(20), default="info")  # a_repondre | repondu | info
+    # Analyse par l'IA : résumé en une phrase et intention (demande_devis, question, reclamation…).
+    ai_summary: Mapped[str] = mapped_column(String(400), default="")
+    ai_intent: Mapped[str] = mapped_column(String(30), default="")
     manual_tag: Mapped[str | None] = mapped_column(String(20), nullable=True)  # a_repondre|urgent|fait|ignore
 
 
@@ -691,6 +694,17 @@ class CopilotBrief(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     day: Mapped[date] = mapped_column(Date)
     content: Mapped[str] = mapped_column(Text, default="")
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
+
+
+class CopilotUsage(Base):
+    """Consommation de l'IA hors conversations (analyse des mails…), pour le budget mensuel."""
+
+    __tablename__ = "copilot_usage"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(40))
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
