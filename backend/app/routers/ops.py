@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -20,6 +20,7 @@ from app.models import (
     BillingDoc,
     ChecklistItem,
     Company,
+    DocumentFolder,
     Employee,
     Expense,
     FileRecord,
@@ -393,16 +394,123 @@ def _file_out(f: FileRecord) -> dict:
         "notes": f.notes,
         "uploaded_by": f.uploaded_by,
         "created_at": f.created_at,
+        "folder_id": f.folder_id,
     }
 
 
+# ---------- Dossiers des documents ----------
+class FolderIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    parent_id: int | None = None
+
+
+class FileMove(BaseModel):
+    folder_id: int | None = None
+
+
+def _folder(db: Session, folder_id: int | None) -> DocumentFolder | None:
+    if folder_id is None:
+        return None
+    f = db.get(DocumentFolder, folder_id)
+    if not f:
+        raise HTTPException(404, "Dossier introuvable.")
+    return f
+
+
+def _check_name(db: Session, name: str, parent_id: int | None, exclude: int | None = None) -> str:
+    name = name.strip().replace("/", "-")
+    if not name:
+        raise HTTPException(400, "Donnez un nom au dossier.")
+    same_parent = (
+        DocumentFolder.parent_id.is_(None) if parent_id is None else DocumentFolder.parent_id == parent_id
+    )
+    for other in db.scalars(select(DocumentFolder).where(same_parent)):
+        if other.id != exclude and other.name.lower() == name.lower():
+            raise HTTPException(400, f"Un dossier « {name} » existe déjà ici.")
+    return name
+
+
+@router.get("/files/folders", dependencies=[Depends(manager_user)])
+def list_folders(db: Session = Depends(get_db)):
+    folders = db.scalars(select(DocumentFolder).order_by(DocumentFolder.name)).all()
+    files = {
+        fid: n
+        for fid, n in db.execute(select(FileRecord.folder_id, func.count()).group_by(FileRecord.folder_id))
+    }
+    subs: dict[int, int] = {}
+    for f in folders:
+        if f.parent_id:
+            subs[f.parent_id] = subs.get(f.parent_id, 0) + 1
+    return [
+        {
+            "id": f.id,
+            "name": f.name,
+            "parent_id": f.parent_id,
+            "files": files.get(f.id, 0),
+            "folders": subs.get(f.id, 0),
+        }
+        for f in folders
+    ]
+
+
+@router.post("/files/folders", status_code=201)
+def create_folder(body: FolderIn, user: User = Depends(manager_user), db: Session = Depends(get_db)):
+    _folder(db, body.parent_id)
+    f = DocumentFolder(
+        name=_check_name(db, body.name, body.parent_id), parent_id=body.parent_id, created_by=user.email
+    )
+    db.add(f)
+    db.commit()
+    audit(db, user.email, "folder_created", f.name)
+    return {"id": f.id, "name": f.name, "parent_id": f.parent_id, "files": 0, "folders": 0}
+
+
+@router.put("/files/folders/{folder_id}")
+def update_folder(
+    folder_id: int, body: FolderIn, user: User = Depends(manager_user), db: Session = Depends(get_db)
+):
+    f = _folder(db, folder_id)
+    # Pas de boucle : on ne range pas un dossier dans lui-même ou dans l'un de ses sous-dossiers.
+    p = _folder(db, body.parent_id)
+    while p is not None:
+        if p.id == f.id:
+            raise HTTPException(
+                400, "Impossible de ranger un dossier dans l'un de ses propres sous-dossiers."
+            )
+        p = db.get(DocumentFolder, p.parent_id) if p.parent_id else None
+    f.name = _check_name(db, body.name, body.parent_id, exclude=f.id)
+    f.parent_id = body.parent_id
+    db.commit()
+    audit(db, user.email, "folder_updated", f.name)
+    return {"id": f.id, "name": f.name, "parent_id": f.parent_id}
+
+
+@router.delete("/files/folders/{folder_id}", status_code=204)
+def delete_folder(folder_id: int, user: User = Depends(manager_user), db: Session = Depends(get_db)):
+    f = _folder(db, folder_id)
+    has_files = db.scalar(select(func.count()).select_from(FileRecord).where(FileRecord.folder_id == f.id))
+    has_subs = db.scalar(
+        select(func.count()).select_from(DocumentFolder).where(DocumentFolder.parent_id == f.id)
+    )
+    if has_files or has_subs:
+        raise HTTPException(400, "Videz le dossier avant de le supprimer (fichiers et sous-dossiers).")
+    db.delete(f)
+    db.commit()
+    audit(db, user.email, "folder_deleted", f.name)
+
+
 @router.get("/files", dependencies=[Depends(manager_user)])
-def list_files(company_id: int | None = None, q: str = "", db: Session = Depends(get_db)):
+def list_files(
+    company_id: int | None = None, q: str = "", folder_id: int | None = None, db: Session = Depends(get_db)
+):
+    """Contenu d'un dossier (racine si aucun). Une recherche ou un filtre société porte sur tous les dossiers."""
     stmt = select(FileRecord).order_by(FileRecord.id.desc()).limit(500)
     if company_id:
         stmt = stmt.where(FileRecord.company_id == company_id)
     if q:
-        stmt = stmt.where(FileRecord.name.ilike(f"%{q}%"))
+        stmt = stmt.where(FileRecord.name.ilike(f"%{q}%") | FileRecord.original_name.ilike(f"%{q}%"))
+    elif not company_id:
+        stmt = stmt.where(FileRecord.folder_id == folder_id if folder_id else FileRecord.folder_id.is_(None))
     return [_file_out(f) for f in db.scalars(stmt)]
 
 
@@ -415,6 +523,7 @@ async def upload_file(
     project_id: int | None = Form(None),
     expires_on: date | None = Form(None),
     notes: str = Form(""),
+    folder_id: int | None = Form(None),
     user: User = Depends(manager_user),
     db: Session = Depends(get_db),
 ):
@@ -432,6 +541,7 @@ async def upload_file(
         raise HTTPException(400, "Fichier vide.")
     if ext in MAGIC and not data.startswith(MAGIC[ext]):
         raise HTTPException(400, "Le contenu du fichier ne correspond pas à son extension.")
+    _folder(db, folder_id)
     stored = secrets.token_hex(16) + ext  # nom aléatoire : jamais celui fourni par l'utilisateur
     (_files_dir() / stored).write_bytes(data)
     rec = FileRecord(
@@ -445,6 +555,7 @@ async def upload_file(
         project_id=project_id,
         expires_on=expires_on,
         notes=notes[:500],
+        folder_id=folder_id,
         uploaded_by=user.email,
     )
     db.add(rec)
@@ -462,6 +573,20 @@ def download_file(file_id: int, db: Session = Depends(get_db)):
     return FileResponse(
         path, media_type=f.mime, filename=f.original_name, content_disposition_type="attachment"
     )
+
+
+@router.put("/files/{file_id}/folder")
+def move_file(
+    file_id: int, body: FileMove, user: User = Depends(manager_user), db: Session = Depends(get_db)
+):
+    f = db.get(FileRecord, file_id)
+    if not f:
+        raise HTTPException(404)
+    dest = _folder(db, body.folder_id)
+    f.folder_id = body.folder_id
+    db.commit()
+    audit(db, user.email, "file_moved", f"{f.name} → {dest.name if dest else 'racine'}")
+    return _file_out(f)
 
 
 @router.delete("/files/{file_id}", status_code=204)

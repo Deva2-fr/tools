@@ -77,7 +77,7 @@ export async function postForPdf(path: string, body: unknown): Promise<{ id: num
 }
 
 // ---------- types ----------
-export interface User { id: number; email: string; name: string; role: "admin" | "manager" | "member"; totp_enabled: boolean }
+export interface User { id: number; email: string; name: string; role: "admin" | "manager" | "member"; totp_enabled: boolean; tours_done?: boolean }
 export const isManager = (u: User) => u.role === "admin" || u.role === "manager";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Row = Record<string, any> & { id: number };
