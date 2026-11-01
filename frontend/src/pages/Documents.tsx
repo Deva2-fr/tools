@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Row, api, apiUpload, downloadFile } from "../api";
+import { Row, api, apiUploadProgress, downloadFile } from "../api";
 import { useRefOptions } from "../components";
 import { Badge, Button, Card, Empty, ErrorMsg, Field, Loading, Modal, PageHeader, fmtDate, TableWrap } from "../ui";
 
@@ -78,6 +78,7 @@ function FolderModal({ title, initial, onSave, onClose, busy, error }: { title: 
 }
 
 const CATS: [string, string][] = [["legal", "Juridique (Kbis, statuts)"], ["contrat", "Contrat"], ["assurance", "Assurance"], ["facture", "Facture fournisseur"], ["rh", "RH"], ["projet", "Projet"], ["autre", "Autre"]];
+const VIDEO = /\.(mp4|mov|m4v|webm)$/i;
 const size = (n: number) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} Mo` : `${Math.ceil(n / 1024)} Ko`);
 
 export default function Documents() {
@@ -101,27 +102,61 @@ export default function Documents() {
   const delFolder = useMutation({ mutationFn: (id: number) => api(`/files/folders/${id}`, "DELETE"), onSuccess: () => qc.invalidateQueries() });
   const move = useMutation({ mutationFn: ([id, folder_id]: [number, number | null]) => api(`/files/${id}/folder`, "PUT", { folder_id }), onSuccess: () => { setMoving(null); qc.invalidateQueries(); } });
   const [f, setF] = useState({ name: "", category: "legal", company_id: "", expires_on: "", notes: "" });
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [progress, setProgress] = useState<{ i: number; n: number; pct: number } | null>(null);
+  const [failed, setFailed] = useState<string[]>([]);
+  const [dragging, setDragging] = useState(false);
+  const [playing, setPlaying] = useState<Row | null>(null);
   const list = useQuery({ queryKey: ["files", q, cwd], queryFn: () => api<Row[]>(`/files?q=${encodeURIComponent(q)}${cwd ? `&folder_id=${cwd}` : ""}`) });
+  // Les fichiers partent l'un après l'autre avec les mêmes réglages ; un refus n'arrête pas les suivants.
   const up = useMutation({
-    mutationFn: () => { const fd = new FormData(); fd.append("file", file!); if (cwd) fd.append("folder_id", String(cwd)); for (const [k, v] of Object.entries(f)) if (v) fd.append(k, v); return apiUpload("/files", fd); },
-    onSuccess: () => { setFile(null); setF({ ...f, name: "", notes: "" }); qc.invalidateQueries(); },
+    mutationFn: async () => {
+      const errors: string[] = [];
+      for (const [i, file] of files.entries()) {
+        setProgress({ i: i + 1, n: files.length, pct: 0 });
+        const fd = new FormData();
+        fd.append("file", file);
+        if (cwd) fd.append("folder_id", String(cwd));
+        for (const [k, v] of Object.entries(f)) if (v && !(k === "name" && files.length > 1)) fd.append(k, v);
+        try { await apiUploadProgress("/files", fd, (pct) => setProgress({ i: i + 1, n: files.length, pct })); }
+        catch (e) { errors.push(`${file.name} : ${e instanceof Error ? e.message : String(e)}`); }
+      }
+      return errors;
+    },
+    onSuccess: (errors) => { setFailed(errors); setFiles([]); setF({ ...f, name: "", notes: "" }); qc.invalidateQueries(); },
+    onSettled: () => setProgress(null),
   });
+  const pick = (list: FileList | null) => { if (list?.length) { setFiles(Array.from(list)); setFailed([]); } };
   const del = useMutation({ mutationFn: (id: number) => api(`/files/${id}`, "DELETE"), onSuccess: () => qc.invalidateQueries() });
   const today = new Date().toISOString().slice(0, 10);
   return (
     <>
-      <PageHeader title="Documents" subtitle="Le coffre de l'entreprise : Kbis, statuts, contrats, assurances… PDF, images, Word, Excel (15 Mo max)." />
+      <PageHeader title="Documents" subtitle="Le coffre de l'entreprise : Kbis, statuts, contrats, assurances, vidéos… PDF, images, Word, Excel jusqu'à 25 Mo ; vidéos MP4, MOV, WEBM jusqu'à 500 Mo. Plusieurs fichiers à la fois." />
       <Card className="mb-6">
-        <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" onSubmit={(e) => { e.preventDefault(); if (file) up.mutate(); }}>
-          <div className="lg:col-span-2"><Field label="Fichier *"><input type="file" required onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></Field></div>
-          <Field label="Nom affiché"><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder={file?.name} /></Field>
+        <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" onSubmit={(e) => { e.preventDefault(); if (files.length) up.mutate(); }}>
+          <div className="lg:col-span-2">
+            <span className="mb-1 block text-xs font-medium text-slate-700">Fichiers *</span>
+              <label onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); pick(e.dataTransfer.files); }}
+                className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded border-2 border-dashed px-3 py-4 text-center text-sm transition ${dragging ? "border-brand-500 bg-brand-50" : "border-slate-200 hover:border-brand-500"}`}>
+                <input type="file" multiple className="sr-only" onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
+                {files.length ? <span className="text-slate-700"><b>{files.length}</b> fichier(s) : {files.slice(0, 3).map((x) => x.name).join(", ")}{files.length > 3 && "…"} · {size(files.reduce((t, x) => t + x.size, 0))}</span>
+                  : <span className="text-slate-500">Glissez vos fichiers ici ou <span className="font-medium text-brand-600">cliquez pour choisir</span> (plusieurs possibles)</span>}
+              </label>
+          </div>
+          <Field label="Nom affiché" hint={files.length > 1 ? "Plusieurs fichiers : chacun garde son nom" : undefined}><input value={f.name} disabled={files.length > 1} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder={files[0]?.name} /></Field>
           <Field label="Catégorie"><select value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}>{CATS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
           <Field label="Société liée"><select value={f.company_id} onChange={(e) => setF({ ...f, company_id: e.target.value })}><option value="">—</option>{companies.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
           <Field label="Date d'expiration" hint="Ex : fin de contrat, validité d'une attestation"><input type="date" value={f.expires_on} onChange={(e) => setF({ ...f, expires_on: e.target.value })} /></Field>
           <div className="lg:col-span-2"><Field label="Notes"><input value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></Field></div>
-          <div className="flex flex-col justify-end gap-1"><span className="text-xs text-slate-500">Dans : <b>{pathLabel(cwd)}</b></span><Button type="submit" busy={up.isPending} disabled={!file}>Téléverser</Button></div>
+          <div className="flex flex-col justify-end gap-1"><span className="text-xs text-slate-500">Dans : <b>{pathLabel(cwd)}</b></span><Button type="submit" busy={up.isPending} disabled={!files.length}>{files.length > 1 ? `Téléverser ${files.length} fichiers` : "Téléverser"}</Button></div>
         </form>
+        {progress && (
+          <div className="mt-3 text-xs text-slate-500">
+            Envoi {progress.n > 1 && `${progress.i}/${progress.n} – `}{progress.pct} %
+            <div className="mt-1 h-1.5 overflow-hidden rounded bg-slate-100"><div className="h-full bg-brand-600 transition-all" style={{ width: `${progress.pct}%` }} /></div>
+          </div>
+        )}
+        {failed.length > 0 && <div className="mt-3 rounded bg-red-50 px-3 py-2 text-xs text-red-700"><p className="font-medium">{failed.length} fichier(s) non envoyé(s) :</p><ul className="mt-1 list-disc pl-4">{failed.map((m) => <li key={m}>{m}</li>)}</ul></div>}
         <ErrorMsg error={up.error} />
       </Card>
       <Card title="Fichiers" action={<div className="flex flex-wrap items-center gap-2"><div className="w-56"><input placeholder="Rechercher dans tous les dossiers…" value={q} onChange={(e) => setQ(e.target.value)} /></div><Button data-tour="docs-new-folder" variant="soft" onClick={() => { saveFolder.reset(); setFolderEdit("new"); }}>+ Dossier</Button></div>}>
@@ -152,13 +187,19 @@ export default function Documents() {
         {list.isLoading ? <Loading /> : !list.data?.length ? (q ? <Empty>Aucun document ne correspond.</Empty> : !here.length && <Empty>{cwd ? "Dossier vide : téléversez un fichier ou créez un sous-dossier." : "Aucun document."}</Empty>) : (
           <TableWrap><table className="w-full min-w-[480px] text-sm"><tbody className="divide-y divide-slate-100">
             {list.data.map((r) => <tr key={r.id}>
-              <td className="py-2.5 pr-3"><button className="font-medium text-brand-600" onClick={() => downloadFile(`/files/${r.id}/download`, r.original_name)}> {r.name}</button><span className="block text-xs text-slate-400">{q && <>📁 {pathLabel(r.folder_id)} · </>}{r.original_name} · {size(r.size)}</span></td>
+              <td className="py-2.5 pr-3">{VIDEO.test(r.original_name) && <button className="mr-1.5 text-brand-600" title="Lire la vidéo" onClick={() => setPlaying(r)}>▶</button>}<button className="font-medium text-brand-600" onClick={() => downloadFile(`/files/${r.id}/download`, r.original_name)}> {r.name}</button><span className="block text-xs text-slate-400">{q && <>📁 {pathLabel(r.folder_id)} · </>}{r.original_name} · {size(r.size)}</span></td>
               <td className="pr-3"><Badge>{CATS.find(([k]) => k === r.category)?.[1] ?? r.category}</Badge></td><td className="pr-3 text-slate-500">{names[r.company_id] ?? ""}</td>
               <td className="pr-3">{r.expires_on && <Badge tone={r.expires_on < today ? "red" : "amber"}>Expire le {fmtDate(r.expires_on)}</Badge>}</td>
               <td className="whitespace-nowrap text-right text-xs">{/\.(pdf|png|jpe?g)$/i.test(r.original_name) && <button className="mr-3 font-medium text-brand-600" onClick={() => setAnalyzing(r)}>✨ Analyser</button>}<button className="mr-3 text-brand-600" onClick={() => setMoving(r)}>Déplacer</button><button className="text-red-500" onClick={() => confirm("Supprimer ce fichier ?") && del.mutate(r.id)}>Supprimer</button></td></tr>)}
           </tbody></table></TableWrap>
         )}
       </Card>
+      {playing && (
+        <Modal title={playing.name} onClose={() => setPlaying(null)}>
+          <video className="w-full rounded bg-black" controls autoPlay preload="metadata" src={`/api/files/${playing.id}/view`}>Votre navigateur ne peut pas lire cette vidéo.</video>
+          <p className="mt-2 text-xs text-slate-400">Si la vidéo ne se lit pas (certains formats iPhone), <button className="text-brand-600 underline" onClick={() => downloadFile(`/files/${playing.id}/download`, playing.original_name)}>téléchargez-la</button>.</p>
+        </Modal>
+      )}
       {analyzing && <AnalysisModal file={analyzing} onClose={() => setAnalyzing(null)} />}
       {folderEdit && <FolderModal title={folderEdit === "new" ? `Nouveau dossier dans « ${pathLabel(cwd)} »` : "Renommer le dossier"} initial={folderEdit === "new" ? "" : folderEdit.name}
         onSave={(n) => saveFolder.mutate(n)} onClose={() => setFolderEdit(null)} busy={saveFolder.isPending} error={saveFolder.error} />}

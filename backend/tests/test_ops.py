@@ -152,7 +152,7 @@ def test_file_vault_security(client, as_role):
     )
     assert (
         client.post(
-            "/api/files", files={"file": ("big.pdf", b"%PDF" + b"0" * (15 * 1024 * 1024), "application/pdf")}
+            "/api/files", files={"file": ("big.pdf", b"%PDF" + b"0" * (25 * 1024 * 1024), "application/pdf")}
         ).status_code
         == 413
     )

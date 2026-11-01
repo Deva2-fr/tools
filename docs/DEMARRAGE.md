@@ -183,7 +183,7 @@ Clé API NVD **gratuite** : <https://nvd.nist.gov/developers/request-an-api-key>
 | **Abonnements & contrats** | domaines (deva2.fr, formasyl.org…), hébergement, assurances, logiciels, avec **date de renouvellement** et « m'alerter N jours avant » |
 | **Impôts & TVA** | bouton *Pré-remplir l'année* puis **faites valider les dates par votre comptable** |
 | **Registre des accès** | où est chaque mot de passe (jamais le mot de passe lui-même) |
-| **Documents** | Kbis, statuts, contrats, assurances (PDF, Word, Excel, images ; 15 Mo max) |
+| **Documents** | Kbis, statuts, contrats, assurances, vidéos (PDF, Word, Excel, images jusqu'à 25 Mo ; MP4, MOV, WEBM jusqu'à 500 Mo ; plusieurs fichiers à la fois) |
 
 ---
 
