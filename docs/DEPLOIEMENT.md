@@ -41,7 +41,9 @@ server {
     listen 443 ssl;
     server_name hub.deva2.fr;
     # ssl_certificate / ssl_certificate_key : comme pour vos autres domaines (certbot…)
-    client_max_body_size 20m;                       # téléversement de documents (15 Mo max côté Hub)
+    client_max_body_size 520m;                      # documents 25 Mo, vidéos 500 Mo côté Hub
+    proxy_request_buffering off;                    # gros envois relayés au fil de l'eau
+    proxy_read_timeout 600s;
 
     location / {
         proxy_pass http://127.0.0.1:31847;

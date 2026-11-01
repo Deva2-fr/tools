@@ -17,6 +17,7 @@ x-backend: &backend
   environment:
     DATABASE_URL: postgresql+psycopg://hub:${POSTGRES_PASSWORD}@db:5432/hub
     DATA_DIR: /data
+    TMPDIR: /data/tmp # gros envois (vidéos) : fichiers temporaires sur le disque, pas dans le tmpfs en RAM
   volumes:
     - hub_data:/data
   networks: [db_net, web]

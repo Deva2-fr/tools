@@ -1,5 +1,8 @@
 import logging
+import os
+import tempfile
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -30,6 +33,9 @@ logging.basicConfig(level=logging.INFO)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    if tmp := os.environ.get("TMPDIR"):  # gros envois (vidéos) : fichiers temporaires sur disque, pas en RAM
+        Path(tmp).mkdir(parents=True, exist_ok=True)
+        tempfile.tempdir = tmp
     run_migrations()
     with SessionLocal() as db:
         seed(db)

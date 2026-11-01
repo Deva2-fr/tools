@@ -389,8 +389,24 @@ def time_report(start: date | None = None, end: date | None = None, db: Session 
 
 
 # ---------- Documents (coffre de fichiers) ----------
-MAX_UPLOAD = 15 * 1024 * 1024
-ALLOWED = {".pdf", ".png", ".jpg", ".jpeg", ".docx", ".xlsx", ".odt", ".ods", ".txt", ".csv", ".pptx"}
+MAX_UPLOAD = 25 * 1024 * 1024
+MAX_VIDEO = 500 * 1024 * 1024
+VIDEOS = {".mp4", ".mov", ".m4v", ".webm"}
+ALLOWED = {
+    ".pdf",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".docx",
+    ".xlsx",
+    ".odt",
+    ".ods",
+    ".txt",
+    ".csv",
+    ".pptx",
+} | VIDEOS
+VIDEO_MIME = {".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm"}
+CHUNK = 1024 * 1024
 MAGIC = {
     ".pdf": b"%PDF",
     ".png": b"\x89PNG",
@@ -401,7 +417,15 @@ MAGIC = {
     ".pptx": b"PK",
     ".odt": b"PK",
     ".ods": b"PK",
+    ".webm": b"\x1a\x45\xdf\xa3",
 }
+
+
+def _content_ok(ext: str, head: bytes) -> bool:
+    """Vérifie que le début du fichier correspond à son extension (mp4/mov : « ftyp » à l'octet 4)."""
+    if ext in (".mp4", ".mov", ".m4v"):
+        return head[4:8] == b"ftyp"
+    return ext not in MAGIC or head.startswith(MAGIC[ext])
 
 
 def _files_dir() -> Path:
@@ -563,23 +587,34 @@ async def upload_file(
             400,
             f"Type de fichier non autorisé ({ext or 'sans extension'}). Autorisés : {', '.join(sorted(ALLOWED))}",
         )
-    data = await file.read(MAX_UPLOAD + 1)
-    if len(data) > MAX_UPLOAD:
-        raise HTTPException(413, "Fichier trop volumineux (15 Mo maximum).")
-    if not data:
-        raise HTTPException(400, "Fichier vide.")
-    if ext in MAGIC and not data.startswith(MAGIC[ext]):
-        raise HTTPException(400, "Le contenu du fichier ne correspond pas à son extension.")
+    limit = MAX_VIDEO if ext in VIDEOS else MAX_UPLOAD
     _folder(db, folder_id)
     stored = secrets.token_hex(16) + ext  # nom aléatoire : jamais celui fourni par l'utilisateur
-    (_files_dir() / stored).write_bytes(data)
+    path = _files_dir() / stored
+    size = 0
+    try:
+        with path.open("wb") as out:  # écriture par morceaux : une vidéo ne passe jamais entière en mémoire
+            while chunk := await file.read(CHUNK):
+                if not size and not _content_ok(ext, chunk):
+                    raise HTTPException(400, "Le contenu du fichier ne correspond pas à son extension.")
+                size += len(chunk)
+                if size > limit:
+                    raise HTTPException(
+                        413, f"Fichier trop volumineux ({limit // (1024 * 1024)} Mo maximum)."
+                    )
+                out.write(chunk)
+        if not size:
+            raise HTTPException(400, "Fichier vide.")
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
     rec = FileRecord(
         name=(name or original)[:200],
         category=category[:40],
         original_name=original[:300],
         stored_name=stored,
-        mime=mimetypes.types_map.get(ext, "application/octet-stream"),
-        size=len(data),
+        mime=VIDEO_MIME.get(ext) or mimetypes.types_map.get(ext, "application/octet-stream"),
+        size=size,
         company_id=company_id,
         project_id=project_id,
         expires_on=expires_on,
@@ -602,6 +637,16 @@ def download_file(file_id: int, db: Session = Depends(get_db)):
     return FileResponse(
         path, media_type=f.mime, filename=f.original_name, content_disposition_type="attachment"
     )
+
+
+@router.get("/files/{file_id}/view", dependencies=[Depends(manager_user)])
+def view_file(file_id: int, db: Session = Depends(get_db)):
+    """Affichage dans la page (lecteur vidéo) ; les requêtes partielles permettent d'avancer dans la vidéo."""
+    f = db.get(FileRecord, file_id)
+    path = _files_dir() / f.stored_name if f else None
+    if not f or not path or not path.exists():
+        raise HTTPException(404)
+    return FileResponse(path, media_type=f.mime, filename=f.original_name, content_disposition_type="inline")
 
 
 @router.post("/files/{file_id}/ai-analyze", dependencies=[Depends(manager_user)])

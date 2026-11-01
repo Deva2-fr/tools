@@ -38,6 +38,25 @@ export async function apiUpload<T = unknown>(path: string, form: FormData): Prom
   return res.json();
 }
 
+/** Envoi avec suivi de l'avancement (fetch ne sait pas le mesurer) : utile pour les vidéos. */
+export function apiUploadProgress<T = unknown>(path: string, form: FormData, onProgress: (pct: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/api${path}`);
+    xhr.setRequestHeader("X-Requested-With", "deva2");
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(Math.round((e.loaded / e.total) * 100));
+    xhr.onload = () => {
+      let data: { detail?: unknown } | null = null;
+      try { data = JSON.parse(xhr.responseText); } catch { /* réponse non JSON (proxy) */ }
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(data as T);
+      const detail = typeof data?.detail === "string" ? data.detail : xhr.status === 413 ? "Fichier trop volumineux pour le serveur." : `Erreur ${xhr.status}`;
+      reject(new ApiError(xhr.status, detail));
+    };
+    xhr.onerror = () => reject(new ApiError(0, "Connexion interrompue pendant l'envoi."));
+    xhr.send(form);
+  });
+}
+
 /** Télécharge un fichier protégé (CSV, PDF…) en envoyant l'en-tête de sécurité. */
 export async function downloadFile(path: string, filename: string): Promise<void> {
   const res = await fetch(`/api${path}`, { credentials: "same-origin", headers: { "X-Requested-With": "deva2" } });
