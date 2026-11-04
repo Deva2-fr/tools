@@ -32,6 +32,23 @@ class UserCreate(BaseModel):
     role: Literal["admin", "manager", "member"] = "member"
 
 
+class ProfileUpdate(BaseModel):
+    name: str = Field("", max_length=120)
+    email: str = Field(min_length=3, max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    current_password: str = ""  # obligatoire seulement pour changer d'e-mail
+
+
+class UserUpdate(BaseModel):
+    name: str = Field("", max_length=120)
+    email: str = Field(min_length=3, max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    role: Literal["admin", "manager", "member"]
+    is_active: bool = True
+
+
+class PasswordReset(BaseModel):
+    new_password: str = Field(min_length=12, max_length=200)
+
+
 class PasswordChange(BaseModel):
     current_password: str
     new_password: str = Field(min_length=12, max_length=200)

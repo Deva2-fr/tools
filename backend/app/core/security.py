@@ -30,10 +30,23 @@ def verify_password(hashed: str, password: str) -> bool:
         return False
 
 
-def create_session_token(user_id: int) -> str:
+def create_session_token(user_id: int, version: int = 0) -> str:
     s = get_settings()
-    payload = {"sub": str(user_id), "exp": utcnow() + timedelta(minutes=s.session_minutes)}
+    payload = {"sub": str(user_id), "v": version, "exp": utcnow() + timedelta(minutes=s.session_minutes)}
     return jwt.encode(payload, s.secret_key, algorithm="HS256")
+
+
+def set_session_cookie(response, user: User) -> None:
+    s = get_settings()
+    response.set_cookie(
+        COOKIE_NAME,
+        create_session_token(user.id, user.session_version or 0),
+        httponly=True,
+        secure=s.cookie_secure,
+        samesite="lax",  # « lax » est nécessaire pour revenir de la page de connexion Microsoft
+        max_age=s.session_minutes * 60,
+        path="/",
+    )
 
 
 def current_user(request: Request, db: Session = Depends(get_db)) -> User:
@@ -49,7 +62,8 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
         user = db.get(User, int(data["sub"]))
     except Exception:
         raise HTTPException(401, "Session invalide") from None
-    if not user or not user.is_active:
+    # Jeton sans version (émis avant cette vérification) : version 0.
+    if not user or not user.is_active or int(data.get("v", 0)) != (user.session_version or 0):
         raise HTTPException(401, "Session invalide")
     return user
 
