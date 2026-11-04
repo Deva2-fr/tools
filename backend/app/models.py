@@ -30,6 +30,9 @@ class User(Base):
     totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     # Guides interactifs : lancés automatiquement pendant la toute première session seulement.
     tours_done: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Incrémentée à chaque changement de mot de passe, d'e-mail ou désactivation : les sessions
+    # ouvertes avant (jetons portant l'ancienne version) sont refusées.
+    session_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 

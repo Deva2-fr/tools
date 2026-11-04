@@ -222,9 +222,29 @@ function Security({ user }: { user: User }) {
   const start = useMutation({ mutationFn: () => api<{ secret: string; otpauth_uri: string }>("/auth/totp/setup", "POST"), onSuccess: setSetup });
   const enable = useMutation({ mutationFn: () => api("/auth/totp/enable", "POST", { code }), onSuccess: () => { setSetup(null); setCode(""); qc.invalidateQueries({ queryKey: ["me"] }); } });
   const disable = useMutation({ mutationFn: () => api("/auth/totp/disable", "POST", { code }), onSuccess: () => { setCode(""); qc.invalidateQueries({ queryKey: ["me"] }); } });
-  const change = useMutation({ mutationFn: () => api("/auth/password", "POST", pw), onSuccess: () => { setPwMsg(" Mot de passe modifié"); setPw({ current_password: "", new_password: "" }); }, onError: () => setPwMsg("") });
+  const change = useMutation({ mutationFn: () => api("/auth/password", "POST", pw), onSuccess: () => { setPwMsg("Mot de passe modifié. Vos autres sessions ont été déconnectées."); setPw({ current_password: "", new_password: "" }); }, onError: () => setPwMsg("") });
+  const [info, setInfo] = useState({ name: user.name, email: user.email, current_password: "" });
+  const [infoMsg, setInfoMsg] = useState("");
+  const emailChanged = info.email.trim().toLowerCase() !== user.email;
+  const saveInfo = useMutation({
+    mutationFn: () => api<User>("/auth/me", "PUT", info),
+    onSuccess: () => { setInfoMsg("Informations enregistrées."); setInfo((x) => ({ ...x, current_password: "" })); qc.invalidateQueries({ queryKey: ["me"] }); },
+    onError: () => setInfoMsg(""),
+  });
   return (
     <div className="grid gap-6 lg:grid-cols-2">
+      <Card title="Mes informations" className="lg:col-span-2">
+        <form className="grid gap-3 sm:grid-cols-3" onSubmit={(e) => { e.preventDefault(); saveInfo.mutate(); }}>
+          <Field label="Nom"><input value={info.name} maxLength={120} onChange={(e) => setInfo({ ...info, name: e.target.value })} /></Field>
+          <Field label="E-mail (identifiant de connexion)"><input type="email" required value={info.email} onChange={(e) => setInfo({ ...info, email: e.target.value })} /></Field>
+          {emailChanged && <Field label="Mot de passe actuel" hint="Requis pour changer d'e-mail"><input type="password" autoComplete="current-password" required value={info.current_password} onChange={(e) => setInfo({ ...info, current_password: e.target.value })} /></Field>}
+          <div className="flex flex-wrap items-center gap-3 sm:col-span-3">
+            <Button type="submit" busy={saveInfo.isPending} disabled={info.name === user.name && !emailChanged}>Enregistrer</Button>
+            {infoMsg && <span className="text-sm text-emerald-700">{infoMsg}</span>}
+          </div>
+          <div className="sm:col-span-3"><ErrorMsg error={saveInfo.error} /></div>
+        </form>
+      </Card>
       <Card title="Double authentification (2FA)" action={user.totp_enabled ? <Badge tone="green">Activée</Badge> : <Badge tone="amber">Non activée</Badge>}>
         {user.totp_enabled ? (
           <div className="space-y-3">
@@ -260,10 +280,64 @@ function Security({ user }: { user: User }) {
   );
 }
 
-interface UserRow { id: number; email: string; name: string; role: string; totp_enabled: boolean }
+interface UserRow { id: number; email: string; name: string; role: string; totp_enabled: boolean; is_active: boolean }
+
+/** Mot de passe provisoire lisible (sans caractères ambigus), 16 caractères. */
+function generatePassword(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789-!";
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => chars[b % chars.length]).join("");
+}
+
+function EditUserModal({ row, me, onClose }: { row: UserRow; me: User; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [f, setF] = useState({ name: row.name, email: row.email, role: row.role, is_active: row.is_active });
+  const [pwd, setPwd] = useState("");
+  const [msg, setMsg] = useState("");
+  const done = (m: string) => { setMsg(m); qc.invalidateQueries({ queryKey: ["users"] }); qc.invalidateQueries({ queryKey: ["audit"] }); };
+  const save = useMutation({ mutationFn: () => api("/users/" + row.id, "PUT", f), onSuccess: () => { qc.invalidateQueries({ queryKey: ["users"] }); qc.invalidateQueries({ queryKey: ["audit"] }); if (row.id === me.id) qc.invalidateQueries({ queryKey: ["me"] }); onClose(); } });
+  const reset = useMutation({ mutationFn: () => api(`/users/${row.id}/password`, "POST", { new_password: pwd }), onSuccess: () => done("Mot de passe provisoire enregistré : transmettez-le à la personne (ses sessions ont été fermées).") });
+  const reset2fa = useMutation({ mutationFn: () => api(`/users/${row.id}/reset-2fa`, "POST"), onSuccess: () => done("2FA retirée : la personne pourra la réactiver dans Mon compte.") });
+  const self = row.id === me.id;
+  return (
+    <Modal title={`Modifier ${row.name || row.email}`} onClose={onClose}>
+      <div className="space-y-5">
+        <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+          <Field label="Nom"><input value={f.name} maxLength={120} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
+          <Field label="E-mail (identifiant de connexion)"><input type="email" required value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></Field>
+          <Field label="Rôle"><select value={f.role} disabled={self} onChange={(e) => setF({ ...f, role: e.target.value })}><option value="member">Membre (CRM, tâches, temps)</option><option value="manager">Manager (+ finances, équipe, documents)</option><option value="admin">Administrateur (+ réglages, utilisateurs)</option></select></Field>
+          <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" className="h-4 w-4" disabled={self} checked={f.is_active} onChange={(e) => setF({ ...f, is_active: e.target.checked })} />Compte actif <span className="text-xs text-slate-400">(décoché : connexion impossible, historique conservé)</span></label>
+          {self && <p className="text-xs text-slate-400">Vous ne pouvez pas changer votre propre rôle ni désactiver votre compte.</p>}
+          <ErrorMsg error={save.error} />
+          <div className="flex justify-end gap-2"><Button type="button" variant="ghost" onClick={onClose}>Annuler</Button><Button type="submit" busy={save.isPending}>Enregistrer</Button></div>
+        </form>
+        {!self && (
+          <div className="space-y-3 border-t border-slate-100 pt-4">
+            <p className="text-sm font-medium text-slate-800">Mot de passe oublié</p>
+            <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); reset.mutate(); }}>
+              <div className="min-w-0 flex-1"><Field label="Mot de passe provisoire" hint="12 caractères minimum"><input value={pwd} minLength={12} required autoComplete="off" onChange={(e) => setPwd(e.target.value)} /></Field></div>
+              <Button type="button" variant="ghost" onClick={() => setPwd(generatePassword())}>Générer</Button>
+              <Button type="submit" variant="soft" busy={reset.isPending}>Réinitialiser</Button>
+            </form>
+            <ErrorMsg error={reset.error} />
+            {row.totp_enabled && (
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
+                <p className="text-sm text-slate-600">Téléphone perdu ? Retirer la double authentification.</p>
+                <Button variant="danger" busy={reset2fa.isPending} onClick={() => confirm(`Retirer la 2FA de ${row.email} ?`) && reset2fa.mutate()}>Réinitialiser la 2FA</Button>
+              </div>
+            )}
+            <ErrorMsg error={reset2fa.error} />
+          </div>
+        )}
+        {msg && <p className="rounded bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{msg}</p>}
+      </div>
+    </Modal>
+  );
+}
 function Users({ me }: { me: User }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<UserRow | null>(null);
   const [f, setF] = useState({ email: "", name: "", password: "", role: "member" });
   const users = useQuery({ queryKey: ["users"], queryFn: () => api<UserRow[]>("/users") });
   const audit = useQuery({ queryKey: ["audit"], queryFn: () => api<{ ts: string; user: string; action: string; detail: string }[]>("/users/audit/log") });
@@ -275,8 +349,9 @@ function Users({ me }: { me: User }) {
         <ul className="divide-y divide-slate-100">
           {users.data?.map((u) => (
             <li key={u.id} className="flex items-center justify-between py-2.5 text-sm">
-              <Link to={`/profil/${u.id}`} className="hover:text-brand-600">{u.name || u.email} <span className="text-slate-400">{u.email}</span></Link>
-              <span className="flex items-center gap-3"><Badge tone={u.role === "admin" ? "blue" : u.role === "manager" ? "amber" : "slate"}>{u.role === "admin" ? "Admin" : u.role === "manager" ? "Manager" : "Membre"}</Badge>{u.totp_enabled && <Badge tone="green">2FA</Badge>}
+              <Link to={`/profil/${u.id}`} className={`hover:text-brand-600 ${u.is_active ? "" : "text-slate-400 line-through"}`}>{u.name || u.email} <span className="text-slate-400">{u.email}</span></Link>
+              <span className="flex items-center gap-3"><Badge tone={u.role === "admin" ? "blue" : u.role === "manager" ? "amber" : "slate"}>{u.role === "admin" ? "Admin" : u.role === "manager" ? "Manager" : "Membre"}</Badge>{u.totp_enabled && <Badge tone="green">2FA</Badge>}{!u.is_active && <Badge tone="red">Désactivé</Badge>}
+                <button className="text-xs text-brand-600" onClick={() => setEditing(u)}>Modifier</button>
                 {u.id !== me.id && <button className="text-xs text-red-600" onClick={() => confirm(`Supprimer ${u.email} ?`) && del.mutate(u.id)}>Supprimer</button>}</span>
             </li>
           ))}
@@ -289,6 +364,7 @@ function Users({ me }: { me: User }) {
           </tbody></table>
         </div>
       </Card>
+      {editing && <EditUserModal row={editing} me={me} onClose={() => setEditing(null)} />}
       {open && (
         <Modal title="Nouvel utilisateur" onClose={() => setOpen(false)}>
           <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); create.mutate(); }}>

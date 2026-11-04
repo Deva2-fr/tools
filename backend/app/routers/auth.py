@@ -3,19 +3,18 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.core.crypto import decrypt, encrypt
 from app.core.db import get_db
 from app.core.security import (
     COOKIE_NAME,
-    create_session_token,
     current_user,
     hash_password,
     login_limiter,
+    set_session_cookie,
     verify_password,
 )
 from app.models import AuditLog, User
-from app.schemas import LoginIn, PasswordChange, TotpCode, UserOut
+from app.schemas import LoginIn, PasswordChange, ProfileUpdate, TotpCode, UserOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 DUMMY_HASH = hash_password("dummy-password-for-timing")
@@ -46,16 +45,7 @@ def login(body: LoginIn, request: Request, response: Response, db: Session = Dep
             audit(db, user.email, "login_failed_2fa")
             raise HTTPException(401, "Code à 6 chiffres incorrect")
     login_limiter.reset(key)
-    s = get_settings()
-    response.set_cookie(
-        COOKIE_NAME,
-        create_session_token(user.id),
-        httponly=True,
-        secure=s.cookie_secure,
-        samesite="lax",  # « lax » est nécessaire pour revenir de la page de connexion Microsoft
-        max_age=s.session_minutes * 60,
-        path="/",
-    )
+    set_session_cookie(response, user)
     audit(db, user.email, "login")
     return user
 
@@ -78,12 +68,42 @@ def tours_done(user: User = Depends(current_user), db: Session = Depends(get_db)
     db.commit()
 
 
+@router.put("/me", response_model=UserOut)
+def update_me(
+    body: ProfileUpdate, response: Response, user: User = Depends(current_user), db: Session = Depends(get_db)
+):
+    """Mes informations : nom et e-mail (le changement d'e-mail demande le mot de passe actuel)."""
+    email = body.email.lower().strip()
+    if email != user.email:
+        if not verify_password(user.password_hash, body.current_password):
+            raise HTTPException(400, "Mot de passe actuel incorrect")
+        if db.scalar(select(User).where(User.email == email)):
+            raise HTTPException(409, "Cet e-mail est déjà utilisé")
+        audit(db, user.email, "email_changed", f"{user.email} → {email}")
+        user.email = email
+        user.session_version = (user.session_version or 0) + 1  # autres sessions fermées
+        set_session_cookie(response, user)
+    user.name = body.name.strip()[:120]
+    db.commit()
+    return user
+
+
 @router.post("/password")
-def change_password(body: PasswordChange, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def change_password(
+    body: PasswordChange,
+    response: Response,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
     if not verify_password(user.password_hash, body.current_password):
         raise HTTPException(400, "Mot de passe actuel incorrect")
+    if body.new_password == body.current_password:
+        raise HTTPException(400, "Le nouveau mot de passe doit être différent de l'actuel")
     user.password_hash = hash_password(body.new_password)
+    # Les autres sessions sont fermées ; celle-ci reçoit un nouveau jeton.
+    user.session_version = (user.session_version or 0) + 1
     db.commit()
+    set_session_cookie(response, user)
     audit(db, user.email, "password_changed")
     return {"ok": True}
 
