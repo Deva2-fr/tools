@@ -13,11 +13,35 @@ from reportlab.pdfgen import canvas as pdfcanvas
 from reportlab.platypus import Image, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app.models import Expense
+from app.services import mileage
 from app.services.billing_pdf import BRAND, MUTED, _p, money, num
 
 
 def number(e: Expense) -> str:
-    return f"NDF-{e.expense_date:%Y%m}-{e.id:04d}"
+    prefix = "NDF-KM" if e.kind == "mileage" else "NDF"
+    return f"{prefix}-{e.expense_date:%Y%m}-{e.id:04d}"
+
+
+def _km(x: float) -> str:
+    return f"{num(x)} km"
+
+
+def _mileage_info(e: Expense) -> list[tuple[str, str]]:
+    total = mileage.total_km(e.distance_km, e.round_trip, e.trips)
+    detail = _km(e.distance_km) + (" × 2 (aller-retour)" if e.round_trip else "")
+    if e.trips > 1:
+        detail += f" × {e.trips} trajets"
+    vehicle = f"{mileage.LABELS.get(e.vehicle_type, e.vehicle_type)}, {e.fiscal_hp} CV"
+    if e.electric:
+        vehicle += ", électrique"
+    if e.vehicle:
+        vehicle += f" – {e.vehicle}"
+    return [
+        ("Trajet", f"{e.departure} → {e.destination}"),
+        ("Distance", f"{detail} = {_km(total)}"),
+        ("Véhicule", vehicle),
+        ("Barème", f"{num(e.rate_per_km)} € / km"),
+    ]
 
 
 def filename(e: Expense) -> str:
@@ -63,7 +87,7 @@ def render_pdf(
         rightMargin=18 * mm,
         topMargin=16 * mm,
         bottomMargin=18 * mm,
-        title=f"Note de frais {number(e)}",
+        title=f"{'Note de frais kilométriques' if e.kind == 'mileage' else 'Note de frais'} {number(e)}",
     )
     seller = [
         company.get("company_name") or "Votre société",
@@ -74,7 +98,7 @@ def render_pdf(
         Table(
             [
                 [
-                    _p("NOTE DE FRAIS", h1),
+                    _p("NOTE DE FRAIS KILOMÉTRIQUES" if e.kind == "mileage" else "NOTE DE FRAIS", h1),
                     _p(f"N° {number(e)}\nÉtablie le {date.today():%d/%m/%Y}", right),
                 ]
             ],
@@ -89,12 +113,14 @@ def render_pdf(
 
     info = [
         ("Collaborateur", e.employee),
-        ("Date de la dépense", f"{e.expense_date:%d/%m/%Y}"),
+        ("Date du trajet" if e.kind == "mileage" else "Date de la dépense", f"{e.expense_date:%d/%m/%Y}"),
         ("Motif", e.reason),
         ("Catégorie", e.category),
         ("Projet / client", e.project),
         ("Moyen de paiement", e.payment_method),
     ]
+    if e.kind == "mileage":
+        info = [*info[:3], *_mileage_info(e), info[4]]  # pas de moyen de paiement : remboursement
     t = Table(
         [[_p(k, small), _p(v or "—", base)] for k, v in info],
         colWidths=[48 * mm, 126 * mm],
@@ -111,12 +137,20 @@ def render_pdf(
     )
     story += [t, Spacer(1, 8 * mm)]
 
-    amounts = Table(
-        [
+    if e.kind == "mileage":
+        total = mileage.total_km(e.distance_km, e.round_trip, e.trips)
+        rows = [
+            [f"{_km(total)} × {num(e.rate_per_km)} €", money(e.amount_ttc)],
+            ["Indemnités à rembourser", money(e.amount_ttc)],
+        ]
+    else:
+        rows = [
             ["Montant HT", money(e.amount_ht)],
             [f"TVA ({num(e.vat_rate)} %)", money(e.amount_vat)],
             ["Total TTC à rembourser", money(e.amount_ttc)],
-        ],
+        ]
+    amounts = Table(
+        rows,
         colWidths=[60 * mm, 40 * mm],
         hAlign="RIGHT",
     )

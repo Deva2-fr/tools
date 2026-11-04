@@ -12,6 +12,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy import false as sa_false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base, UTCDateTime, utcnow
@@ -231,6 +232,21 @@ class Expense(Base):
     amount_vat: Mapped[float] = mapped_column(Numeric(12, 2, asdecimal=False))
     notes: Mapped[str] = mapped_column(Text, default="")
     pdf_path: Mapped[str] = mapped_column(String(300), default="")
+    # Type de note : dépense avec ticket (« expense ») ou indemnités kilométriques (« mileage »).
+    kind: Mapped[str] = mapped_column(String(20), default="expense", server_default="expense")
+    departure: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    destination: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    distance_km: Mapped[float] = mapped_column(
+        Numeric(9, 1, asdecimal=False), default=0, server_default="0"
+    )  # un trajet
+    round_trip: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false())
+    trips: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    vehicle_type: Mapped[str] = mapped_column(String(10), default="car", server_default="car")  # car|moto
+    fiscal_hp: Mapped[int] = mapped_column(Integer, default=0, server_default="0")  # chevaux fiscaux
+    electric: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false())
+    vehicle: Mapped[str] = mapped_column(String(120), default="", server_default="")
+    # Taux appliqué, gardé sur la note : un nouveau barème ne change pas les notes passées.
+    rate_per_km: Mapped[float] = mapped_column(Numeric(6, 3, asdecimal=False), default=0, server_default="0")
     # Signatures : le demandeur, le président et l'associé (cf. « signataires » dans les paramètres).
     signature_id: Mapped[int | None] = mapped_column(
         ForeignKey("signatures.id", ondelete="SET NULL"), nullable=True

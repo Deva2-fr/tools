@@ -246,3 +246,59 @@ def test_delete_signature(client, as_role):
     # Un manager peut supprimer la signature de quelqu'un d'autre
     s2 = sign(alice, "Alice 2")
     assert client.delete(f"/api/expenses/signatures/{s2['id']}").status_code == 204
+
+
+KM = {
+    "kind": "mileage",
+    "expense_date": str(date.today()),
+    "reason": "Rendez-vous client Formasyl",
+    "departure": "Lyon",
+    "destination": "Grenoble",
+    "distance_km": 42,
+    "round_trip": True,
+    "trips": 3,
+    "fiscal_hp": 5,
+    "vehicle": "Clio AB-123-CD",
+    "amount_ttc": 9999,  # ignoré : le serveur recalcule
+    "vat_rate": 20,
+}
+
+
+def test_mileage_rates():
+    from app.services import mileage
+
+    assert mileage.base_rate("car", 3) == 0.529 and mileage.base_rate("car", 9) == 0.697
+    assert mileage.base_rate("car", 5, electric=True) == round(0.636 * 1.2, 3)
+    assert mileage.base_rate("moto", 2) == 0.395 and mileage.base_rate("moto", 4) == 0.468
+    assert mileage.total_km(42, True, 3) == 252 and mileage.total_km(10, False, 1) == 10
+    assert mileage.amount(252, 0.636) == 160.27
+
+
+def test_mileage_expense_is_computed_by_server_and_printed(client):
+    r = save(client, KM)
+    assert r.status_code == 200, r.text
+    text = "".join(p.extract_text() for p in PdfReader(io.BytesIO(r.content)).pages)
+    assert "KILOMÉTRIQUES" in text and "Lyon → Grenoble" in text and "252 km" in text
+    e = next(x for x in client.get("/api/expenses").json() if x["id"] == int(r.headers["X-Expense-Id"]))
+    assert e["kind"] == "mileage" and e["amount_ttc"] == 160.27 and e["rate_per_km"] == 0.636
+    assert e["vat_rate"] == 0 and e["amount_vat"] == 0 and e["amount_ht"] == 160.27
+    assert e["category"] == "Indemnités kilométriques"
+
+    # Taux forcé (convention d'entreprise) et modification de la note
+    r = save(client, {**KM, "rate_per_km": 0.5, "trips": 1}, expense_id=e["id"])
+    e = next(x for x in client.get("/api/expenses").json() if x["id"] == e["id"])
+    assert e["amount_ttc"] == 42.0 and e["rate_per_km"] == 0.5
+
+    rates = client.get("/api/expenses/mileage-rates").json()
+    assert rates["vehicles"][0]["type"] == "car" and rates["electric_bonus"] == 0.2
+
+
+def test_mileage_validation_and_classic_expense_unchanged(client):
+    for bad in ({"distance_km": 0}, {"departure": ""}, {"fiscal_hp": 0}):
+        r = save(client, {**KM, **bad})
+        assert r.status_code == 422 and "Value error" not in r.json()["detail"], r.text
+    r = save(client, BODY)
+    assert r.status_code == 200
+    e = next(x for x in client.get("/api/expenses").json() if x["id"] == int(r.headers["X-Expense-Id"]))
+    assert e["kind"] == "expense" and e["amount_ttc"] == 120 and e["amount_vat"] == 10.91
+    assert save(client, {**BODY, "amount_ttc": 0}).status_code == 422

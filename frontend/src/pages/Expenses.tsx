@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { DirectoryUser, Expense, SignatureRow, Signers, User, api, apiUpload, isManager, postForPdf } from "../api";
+import { DirectoryUser, Expense, MileageRates, SignatureRow, Signers, User, api, apiUpload, isManager, postForPdf } from "../api";
 import SignaturePad from "./SignaturePad";
 import { Badge, Button, Card, Empty, ErrorMsg, Field, Loading, PageHeader, fmtDate, fmtMoney } from "../ui";
 
@@ -11,7 +11,17 @@ const blank = (user: User) => ({
   expense_date: new Date().toISOString().slice(0, 10), user_id: user.id as number, signature_id: null as number | null,
   president_signature_id: null as number | null, partner_signature_id: null as number | null, reason: "", category: "Transport",
   project: "", payment_method: PAYMENTS[0], amount_ttc: "" as number | "", vat_rate: 20, notes: "",
+  kind: "expense" as "expense" | "mileage", departure: "", destination: "", distance_km: "" as number | "", round_trip: true, trips: 1,
+  vehicle_type: "car" as "car" | "moto", fiscal_hp: 5, electric: false, vehicle: "", rate_per_km: "" as number | "",
 });
+
+/** Taux du barème (tranche jusqu'à 5 000 km/an) pour un véhicule, majoré de 20 % s'il est électrique. */
+function baremeRate(table: MileageRates | undefined, type: string, hp: number, electric: boolean): number {
+  const rates = table?.vehicles.find((v) => v.type === type)?.rates ?? [];
+  const rate = [...rates].reverse().find((r) => hp >= r.min_hp)?.rate ?? 0;
+  return electric ? Math.round(rate * (1 + (table?.electric_bonus ?? 0)) * 1000) / 1000 : rate;
+}
+const fmtNum = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
 
 /** Dernière signature utilisée par utilisateur : simple confort, mémorisé dans ce navigateur. */
 const lastSig = {
@@ -104,13 +114,26 @@ export default function Expenses({ user }: { user: User }) {
   });
 
   const requester = people.data?.find((p) => p.id === f.user_id);
-  const ttc = Number(f.amount_ttc) || 0;
+  // Indemnités kilométriques : même calcul que le serveur (qui fait foi), pour l'aperçu.
+  const km = f.kind === "mileage";
+  const rates = useQuery({ queryKey: ["mileage-rates"], queryFn: () => api<MileageRates>("/expenses/mileage-rates"), staleTime: Infinity });
+  const bareme = baremeRate(rates.data, f.vehicle_type, f.fiscal_hp, f.electric);
+  const rate = Number(f.rate_per_km) || bareme;
+  const totalKm = Math.round((Number(f.distance_km) || 0) * (f.round_trip ? 2 : 1) * Math.max(f.trips, 1) * 10) / 10;
+  const kmAmount = Math.round(totalKm * rate * 100) / 100;
+  // Nouvelle note kilométrique : on reprend le véhicule de la dernière note kilométrique de la personne.
+  const switchKind = (kind: "expense" | "mileage") => setF((x) => {
+    if (kind === "expense") return { ...x, kind, category: x.category === "Indemnités kilométriques" ? "Transport" : x.category };
+    const last = list.data?.find((e) => e.kind === "mileage" && e.user_id === x.user_id);
+    return { ...x, kind, ...(last && !editId ? { vehicle_type: last.vehicle_type, fiscal_hp: last.fiscal_hp, electric: last.electric, vehicle: last.vehicle } : {}) };
+  });
+  const ttc = km ? kmAmount : Number(f.amount_ttc) || 0;
   const ht = Math.round((ttc / (1 + f.vat_rate / 100)) * 100) / 100;
 
   const save = useMutation({
     mutationFn: () => {
       const form = new FormData();
-      form.append("data", JSON.stringify({ ...f, amount_ttc: ttc }));
+      form.append("data", JSON.stringify({ ...f, amount_ttc: ttc, distance_km: Number(f.distance_km) || 0, rate_per_km: Number(f.rate_per_km) || 0 }));
       newFiles.forEach((file) => form.append("receipts", file));
       removeIds.forEach((id) => form.append("remove_receipt_ids", String(id)));
       return postForPdf(`/expenses/save${editId ? `?expense_id=${editId}` : ""}`, form);
@@ -132,7 +155,11 @@ export default function Expenses({ user }: { user: User }) {
   const edit = (e: Expense) => {
     setEditId(e.id);
     setDone("");
-    setF({ expense_date: e.expense_date, user_id: e.user_id ?? user.id, signature_id: e.signature_id, president_signature_id: e.president_signature_id, partner_signature_id: e.partner_signature_id, reason: e.reason, category: e.category, project: e.project, payment_method: e.payment_method, amount_ttc: e.amount_ttc, vat_rate: e.vat_rate, notes: e.notes });
+    setF({ expense_date: e.expense_date, user_id: e.user_id ?? user.id, signature_id: e.signature_id, president_signature_id: e.president_signature_id, partner_signature_id: e.partner_signature_id, reason: e.reason, category: e.category, project: e.project, payment_method: e.payment_method, amount_ttc: e.amount_ttc, vat_rate: e.vat_rate, notes: e.notes,
+      kind: e.kind, departure: e.departure, destination: e.destination, distance_km: e.distance_km || "", round_trip: e.round_trip, trips: e.trips,
+      vehicle_type: e.vehicle_type, fiscal_hp: e.fiscal_hp || 5, electric: e.electric, vehicle: e.vehicle,
+      // Taux forcé seulement s'il diffère du barème de ce véhicule.
+      rate_per_km: e.kind === "mileage" && e.rate_per_km !== baremeRate(rates.data, e.vehicle_type, e.fiscal_hp, e.electric) ? e.rate_per_km : "" });
     resetFiles();
     setCurrentFiles(e.receipt_files);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -143,26 +170,58 @@ export default function Expenses({ user }: { user: User }) {
       <PageHeader title="Notes de frais" subtitle="Remplissez la note, faites-la signer (demandeur, président, associé), joignez les justificatifs : le PDF est généré, téléchargé et rangé dans Google Drive (Administration › Comptabilité › Note de frais)." />
       <Card title={editId ? `Modifier la note n°${editId}` : "Nouvelle note de frais"}>
         <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Field label="Date de la dépense *"><input type="date" required value={f.expense_date} onChange={(e) => set("expense_date", e.target.value)} /></Field>
+          <div className="sm:col-span-2 lg:col-span-3 flex flex-wrap gap-2" role="radiogroup" aria-label="Type de note">
+            {([["expense", "🧾 Dépense (ticket, facture)"], ["mileage", "🚗 Kilométrique (véhicule personnel)"]] as const).map(([k, label]) => (
+              <button key={k} type="button" role="radio" aria-checked={f.kind === k} onClick={() => switchKind(k)}
+                className={`rounded-full border px-3 py-1.5 text-sm ${f.kind === k ? "border-brand-600 bg-brand-50 font-medium text-brand-700" : "border-slate-200 text-slate-600 hover:border-brand-500"}`}>{label}</button>
+            ))}
+          </div>
+          <Field label={km ? "Date du trajet *" : "Date de la dépense *"}><input type="date" required value={f.expense_date} onChange={(e) => set("expense_date", e.target.value)} /></Field>
           <Field label="Utilisateur *" hint={manager ? "La personne qui a avancé les frais" : undefined}>
             <select required disabled={!manager} value={f.user_id} onChange={(e) => setF((x) => ({ ...x, user_id: Number(e.target.value), signature_id: null }))}>
               {(people.data ?? [{ id: user.id, name: user.name || user.email, email: user.email }]).map((p) => <option key={p.id} value={p.id}>{p.name}{p.name !== p.email ? ` (${p.email})` : ""}</option>)}
             </select>
           </Field>
-          <Field label="Catégorie">
-            <select value={f.category} onChange={(e) => set("category", e.target.value)}>{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select>
-          </Field>
-          <div className="sm:col-span-2 lg:col-span-3"><Field label="Motif *" hint="Ex : Train Paris–Lyon, rendez-vous client Formasyl"><input required value={f.reason} onChange={(e) => set("reason", e.target.value)} /></Field></div>
-          <Field label="Montant TTC (€) *"><input type="number" step="0.01" min="0.01" required value={f.amount_ttc} onChange={(e) => set("amount_ttc", e.target.value === "" ? "" : Number(e.target.value))} /></Field>
-          <Field label="Taux de TVA">
-            <select value={f.vat_rate} onChange={(e) => set("vat_rate", Number(e.target.value))}>
-              {[20, 10, 5.5, 2.1, 0].map((r) => <option key={r} value={r}>{r} %</option>)}
-            </select>
-          </Field>
-          <div className="flex items-end"><p className="rounded bg-slate-50 px-3 py-2 text-sm text-slate-600">HT : <b>{fmtMoney(ht)}</b> · TVA : <b>{fmtMoney(Math.round((ttc - ht) * 100) / 100)}</b></p></div>
-          <Field label="Moyen de paiement">
-            <select value={f.payment_method} onChange={(e) => set("payment_method", e.target.value)}>{PAYMENTS.map((c) => <option key={c}>{c}</option>)}</select>
-          </Field>
+          {km ? <div /> : (
+            <Field label="Catégorie">
+              <select value={f.category} onChange={(e) => set("category", e.target.value)}>{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select>
+            </Field>
+          )}
+          <div className="sm:col-span-2 lg:col-span-3"><Field label="Motif *" hint={km ? "Ex : rendez-vous client Formasyl, livraison matériel" : "Ex : Train Paris–Lyon, rendez-vous client Formasyl"}><input required value={f.reason} onChange={(e) => set("reason", e.target.value)} /></Field></div>
+          {km ? (
+            <>
+              <Field label="Départ *"><input required value={f.departure} onChange={(e) => set("departure", e.target.value)} placeholder="Ex : Bureau, Lyon" /></Field>
+              <Field label="Arrivée *"><input required value={f.destination} onChange={(e) => set("destination", e.target.value)} placeholder="Ex : Formasyl, Grenoble" /></Field>
+              <Field label="Distance d'un trajet (km) *"><input type="number" step="0.1" min="0.1" required value={f.distance_km} onChange={(e) => set("distance_km", e.target.value === "" ? "" : Number(e.target.value))} /></Field>
+              <label className="flex items-center gap-2 self-end pb-2 text-sm text-slate-700"><input type="checkbox" className="h-4 w-4" checked={f.round_trip} onChange={(e) => set("round_trip", e.target.checked)} />Aller-retour (distance × 2)</label>
+              <Field label="Nombre de trajets" hint="Trajets identiques regroupés sur cette note"><input type="number" min={1} max={500} required value={f.trips} onChange={(e) => set("trips", Math.max(1, Number(e.target.value) || 1))} /></Field>
+              <Field label="Véhicule" hint="Facultatif, ex : Clio AB-123-CD"><input value={f.vehicle} onChange={(e) => set("vehicle", e.target.value)} /></Field>
+              <Field label="Type de véhicule">
+                <select value={f.vehicle_type} onChange={(e) => set("vehicle_type", e.target.value as "car" | "moto")}>{(rates.data?.vehicles ?? [{ type: "car", label: "Voiture" }, { type: "moto", label: "Moto" }]).map((v) => <option key={v.type} value={v.type}>{v.label}</option>)}</select>
+              </Field>
+              <Field label="Puissance fiscale (CV) *" hint="Case P.6 de la carte grise"><input type="number" min={1} max={99} required value={f.fiscal_hp} onChange={(e) => set("fiscal_hp", Math.max(1, Number(e.target.value) || 1))} /></Field>
+              <label className="flex items-center gap-2 self-end pb-2 text-sm text-slate-700"><input type="checkbox" className="h-4 w-4" checked={f.electric} onChange={(e) => set("electric", e.target.checked)} />Véhicule électrique (+20 %)</label>
+              <Field label="Taux (€ / km)" hint={`Vide = barème fiscal : ${fmtNum(bareme)} €`}><input type="number" step="0.001" min="0" value={f.rate_per_km} placeholder={String(bareme)} onChange={(e) => set("rate_per_km", e.target.value === "" ? "" : Number(e.target.value))} /></Field>
+              <div className="sm:col-span-2 flex items-end">
+                <p className="rounded bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                  {f.round_trip && "2 × "}{fmtNum(Number(f.distance_km) || 0)} km{f.trips > 1 && ` × ${f.trips} trajets`} = <b>{fmtNum(totalKm)} km</b> × {fmtNum(rate)} € = <b>{fmtMoney(kmAmount)}</b> <span className="text-slate-400">(sans TVA)</span>
+                </p>
+              </div>
+            </>
+          ) : (
+            <>
+              <Field label="Montant TTC (€) *"><input type="number" step="0.01" min="0.01" required value={f.amount_ttc} onChange={(e) => set("amount_ttc", e.target.value === "" ? "" : Number(e.target.value))} /></Field>
+              <Field label="Taux de TVA">
+                <select value={f.vat_rate} onChange={(e) => set("vat_rate", Number(e.target.value))}>
+                  {[20, 10, 5.5, 2.1, 0].map((r) => <option key={r} value={r}>{r} %</option>)}
+                </select>
+              </Field>
+              <div className="flex items-end"><p className="rounded bg-slate-50 px-3 py-2 text-sm text-slate-600">HT : <b>{fmtMoney(ht)}</b> · TVA : <b>{fmtMoney(Math.round((ttc - ht) * 100) / 100)}</b></p></div>
+              <Field label="Moyen de paiement">
+                <select value={f.payment_method} onChange={(e) => set("payment_method", e.target.value)}>{PAYMENTS.map((c) => <option key={c}>{c}</option>)}</select>
+              </Field>
+            </>
+          )}
           <Field label="Projet concerné" hint="Facultatif"><input value={f.project} onChange={(e) => set("project", e.target.value)} /></Field>
           <Field label="Remarques"><input value={f.notes} onChange={(e) => set("notes", e.target.value)} /></Field>
           <div className="sm:col-span-2 lg:col-span-3 border-t border-slate-100 pt-4">
@@ -179,12 +238,12 @@ export default function Expenses({ user }: { user: User }) {
             </div>
           </div>
           <div data-tour="exp-receipts" className="sm:col-span-2 lg:col-span-3">
-            <Field label={`Justificatifs (${keptCount}/10)`} hint="Tickets, factures… PDF, JPG ou PNG (10 Mo max. chacun) : ajoutés à la fin du PDF, dans l'ordre">
+            <Field label={`Justificatifs (${keptCount}/10)`} hint={km ? "Facultatif : capture d'itinéraire, carte grise… PDF, JPG ou PNG (10 Mo max. chacun)" : "Tickets, factures… PDF, JPG ou PNG (10 Mo max. chacun) : ajoutés à la fin du PDF, dans l'ordre"}>
               <input key={fileKey} type="file" multiple accept="application/pdf,image/jpeg,image/png" onChange={(e) => { const picked = Array.from(e.target.files ?? []); setNewFiles((x) => [...x, ...picked]); setFileKey((k) => k + 1); }} />
             </Field>
             {newFiles.length > 0 && (
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <Button type="button" variant="soft" busy={aiRead.isPending} onClick={() => aiRead.mutate(newFiles[newFiles.length - 1])}>✨ Remplir avec l'IA</Button>
+                {!km && <Button type="button" variant="soft" busy={aiRead.isPending} onClick={() => aiRead.mutate(newFiles[newFiles.length - 1])}>✨ Remplir avec l'IA</Button>}
                 <span className="text-xs text-slate-500">{aiMsg || "Lit le dernier justificatif ajouté : date, montant TTC, TVA, motif, catégorie."}</span>
               </div>
             )}
@@ -237,7 +296,7 @@ export default function Expenses({ user }: { user: User }) {
               <tbody className="divide-y divide-slate-100">
                 {list.data.map((e) => (
                   <tr key={e.id}>
-                    <td className="py-2.5">{fmtDate(e.expense_date)}</td><td>{e.employee}</td><td className="max-w-xs truncate">{e.reason}</td><td><Badge>{e.category || "—"}</Badge></td>
+                    <td className="py-2.5">{fmtDate(e.expense_date)}</td><td>{e.employee}</td><td className="max-w-xs truncate">{e.reason}{e.kind === "mileage" && <span className="block truncate text-xs text-slate-400">{e.departure} → {e.destination} ({fmtNum(e.distance_km * (e.round_trip ? 2 : 1) * e.trips)} km)</span>}</td><td><Badge>{e.kind === "mileage" ? "🚗 km" : e.category || "—"}</Badge></td>
                     <td className="text-right font-medium">{fmtMoney(e.amount_ttc)}</td><td className="text-right text-slate-500">{fmtMoney(e.amount_vat)}</td>
                     <td className="space-x-3 whitespace-nowrap text-right text-xs">
                       {e.has_pdf && <a className="text-brand-600" href={`/api/expenses/${e.id}/pdf`}>PDF</a>}
