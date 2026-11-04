@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ORM(BaseModel):
@@ -202,9 +202,35 @@ class ExpenseIn(BaseModel):
     category: str = ""
     project: str = ""
     payment_method: str = ""
-    amount_ttc: float = Field(gt=0, lt=1_000_000)
+    # Pour une note kilométrique, le montant est recalculé par le serveur : celui envoyé est ignoré.
+    amount_ttc: float = Field(0, ge=0, lt=1_000_000)
     vat_rate: float = Field(20, ge=0, le=100)
     notes: str = ""
+    kind: Literal["expense", "mileage"] = "expense"
+    departure: str = Field("", max_length=200)
+    destination: str = Field("", max_length=200)
+    distance_km: float = Field(0, ge=0, lt=100_000)
+    round_trip: bool = False
+    trips: int = Field(1, ge=1, le=500)
+    vehicle_type: Literal["car", "moto"] = "car"
+    fiscal_hp: int = Field(0, ge=0, le=99)
+    electric: bool = False
+    vehicle: str = Field("", max_length=120)
+    rate_per_km: float = Field(0, ge=0, le=10)  # 0 = barème
+
+    @model_validator(mode="after")
+    def _check_kind(self):
+        if self.kind == "mileage":
+            if not self.departure.strip() or not self.destination.strip():
+                raise ValueError("Indiquez le départ et l'arrivée du trajet.")
+            if self.distance_km <= 0:
+                raise ValueError("Indiquez la distance du trajet (en km).")
+            if self.fiscal_hp <= 0:
+                raise ValueError("Indiquez la puissance fiscale du véhicule (CV).")
+        elif self.amount_ttc <= 0:
+            raise ValueError("Indiquez le montant TTC.")
+        return self
+
     user_id: int | None = None  # vide = soi-même
     signature_id: int | None = None  # demandeur
     president_signature_id: int | None = None

@@ -16,7 +16,7 @@ from app.core.security import admin_user, current_user, is_manager
 from app.models import Expense, ExpenseReceipt, Signature, User
 from app.routers.auth import audit
 from app.schemas import ExpenseIn, ExpenseOut
-from app.services import doc_ai, expense_pdf, google_drive, integrations
+from app.services import doc_ai, expense_pdf, google_drive, integrations, mileage
 
 router = APIRouter(prefix="/expenses", tags=["notes de frais"])
 
@@ -99,7 +99,17 @@ def _apply(db: Session, user: User, e: Expense, body: ExpenseIn) -> None:
     for k, v in body.model_dump().items():
         setattr(e, k, v)
     e.user_id, e.employee = target.id, (target.name or target.email)[:120]
-    e.amount_ht, e.amount_vat = compute_amounts(body.amount_ttc, body.vat_rate)
+    if body.kind == "mileage":
+        # Indemnités kilométriques : montant recalculé ici (barème ou taux forcé), sans TVA.
+        e.rate_per_km = body.rate_per_km or mileage.base_rate(
+            body.vehicle_type, body.fiscal_hp, body.electric
+        )
+        km = mileage.total_km(body.distance_km, body.round_trip, body.trips)
+        e.amount_ttc = mileage.amount(km, e.rate_per_km)
+        if e.amount_ttc <= 0:
+            raise HTTPException(400, "Le montant calculé est nul : vérifiez la distance et le taux.")
+        e.vat_rate, e.category = 0, mileage.CATEGORY
+    e.amount_ht, e.amount_vat = compute_amounts(e.amount_ttc, e.vat_rate)
 
 
 def _get(db: Session, user: User, expense_id: int) -> Expense:
@@ -266,6 +276,12 @@ def list_expenses(db: Session = Depends(get_db), user: User = Depends(current_us
     return [_out(e) for e in db.scalars(stmt)]
 
 
+@router.get("/mileage-rates")
+def mileage_rates(_: User = Depends(current_user)):
+    """Barème kilométrique, pour l'aperçu du calcul dans le formulaire."""
+    return mileage.rates_table()
+
+
 @router.post("/ai-read")
 async def ai_read_receipt(
     file: UploadFile = File(...), db: Session = Depends(get_db), _: User = Depends(current_user)
@@ -355,7 +371,9 @@ async def save_and_download(
     try:
         body = ExpenseIn.model_validate_json(data)
     except ValidationError as exc:
-        raise HTTPException(422, "; ".join(err["msg"] for err in exc.errors())) from exc
+        raise HTTPException(
+            422, "; ".join(err["msg"].removeprefix("Value error, ") for err in exc.errors())
+        ) from exc
     uploads = [await _read_receipt(f) for f in receipts if f.filename]
     e = _get(db, user, expense_id) if expense_id else None
     if not e:
