@@ -105,3 +105,58 @@ def test_several_files_in_a_row_land_in_the_same_folder(client):
     for n in ("a", "b", "c"):
         upload(client, n, folder["id"])
     assert {f["name"] for f in client.get(f"/api/files?folder_id={folder['id']}").json()} == {"a", "b", "c"}
+
+
+def test_recommended_tree_is_created_once(client):
+    from datetime import date
+
+    r = client.post("/api/files/folders/template")
+    assert r.status_code == 200 and r.json()["created"] > 10
+    folders = client.get("/api/files/folders").json()
+    by_name = {f["name"]: f for f in folders}
+    assert {"01 Clients", "02 Administration", "03 Comptabilité", "04 RH", "99 Archives"} <= set(by_name)
+    compta = by_name["03 Comptabilité"]["id"]
+    notes = next(f for f in folders if f["name"] == "Notes de frais" and f["parent_id"] == compta)
+    assert any(f["name"] == str(date.today().year) and f["parent_id"] == notes["id"] for f in folders)
+    # Relancer ne crée aucun doublon et garde ce qui existe
+    client.post("/api/files/folders", json={"name": "Perso", "parent_id": by_name["06 Interne"]["id"]})
+    assert client.post("/api/files/folders/template").json()["created"] == 0
+    assert len(client.get("/api/files/folders").json()) == len(folders) + 1
+
+
+def test_client_folder_linked_to_company(client, as_role):
+    acme = client.post("/api/crm/companies", json={"name": "Acme", "kind": "client"}).json()
+    client.post("/api/crm/companies", json={"name": "Prospect SA", "kind": "prospect"})
+    r = client.get(f"/api/files/clients/{acme['id']}")
+    assert r.status_code == 200, r.text
+    folder = r.json()
+    assert folder["name"] == "Acme" and folder["company_id"] == acme["id"]
+    assert [s["name"] for s in folder["subfolders"]] == [  # ordre d'usage, pas alphabétique
+        "Devis & contrats",
+        "Factures",
+        "Projet & livrables",
+        "Échanges & comptes rendus",
+        "Accès & technique",
+    ]
+    # Une seule fois : même dossier au deuxième appel
+    assert client.get(f"/api/files/clients/{acme['id']}").json()["id"] == folder["id"]
+    root = next(f for f in client.get("/api/files/folders").json() if f["name"] == "01 Clients")
+    assert folder["parent_id"] == root["id"]
+
+    # Envoi depuis la fiche : rangé dans le sous-dossier et lié à la société
+    sub = next(s for s in folder["subfolders"] if s["name"] == "Devis & contrats")
+    r = client.post(
+        "/api/files",
+        data={"folder_id": str(sub["id"]), "company_id": str(acme["id"])},
+        files={"file": ("devis.pdf", PDF, "application/pdf")},
+    )
+    assert r.status_code == 201 and r.json()["company_id"] == acme["id"]
+    assert [f["name"] for f in client.get(f"/api/files?company_id={acme['id']}").json()] == ["devis.pdf"]
+
+    # Création en masse : seulement les clients, sans doublon
+    beta = client.post("/api/crm/companies", json={"name": "Beta", "kind": "client"}).json()
+    r = client.post("/api/files/clients").json()
+    assert r["clients"] == 2 and r["created"] == 6  # Beta + ses 5 sous-dossiers
+    names = {f["name"] for f in client.get("/api/files/folders").json()}
+    assert "Beta" in names and "Prospect SA" not in names
+    assert as_role("member").get(f"/api/files/clients/{beta['id']}").status_code == 403

@@ -483,6 +483,129 @@ def _check_name(db: Session, name: str, parent_id: int | None, exclude: int | No
     return name
 
 
+# Organisation recommandée : un dossier par client, et des dossiers fixes pour la vie de l'entreprise.
+CLIENTS_ROOT = "01 Clients"
+CLIENT_SUBFOLDERS = [
+    "Devis & contrats",
+    "Factures",
+    "Projet & livrables",
+    "Échanges & comptes rendus",
+    "Accès & technique",
+]
+
+
+def _template() -> list[tuple[str, list]]:
+    year = str(date.today().year)
+    return [
+        (CLIENTS_ROOT, []),
+        (
+            "02 Administration",
+            [("Juridique", []), ("Assurances", []), ("Banque", []), ("Fournisseurs & abonnements", [])],
+        ),
+        (
+            "03 Comptabilité",
+            [
+                ("Factures fournisseurs", [(year, [])]),
+                ("Notes de frais", [(year, [])]),
+                ("Impôts & TVA", []),
+                ("Bilans & expert-comptable", []),
+            ],
+        ),
+        ("04 RH", [("Collaborateurs", []), ("Paie & social", [])]),
+        ("05 Commercial & marketing", []),
+        ("06 Interne", []),
+        ("99 Archives", []),
+    ]
+
+
+def _ensure(db: Session, name: str, parent_id: int | None, user: User, created: list) -> DocumentFolder:
+    """Dossier `name` sous `parent_id` : réutilisé s'il existe (casse ignorée), sinon créé."""
+    same_parent = (
+        DocumentFolder.parent_id.is_(None) if parent_id is None else DocumentFolder.parent_id == parent_id
+    )
+    for f in db.scalars(select(DocumentFolder).where(same_parent)):
+        if f.name.lower() == name.lower():
+            return f
+    f = DocumentFolder(name=name, parent_id=parent_id, created_by=user.email)
+    db.add(f)
+    db.flush()
+    created.append(f)
+    return f
+
+
+def _build(db: Session, tree: list, parent_id: int | None, user: User, created: list) -> None:
+    for name, children in tree:
+        _build(db, children, _ensure(db, name, parent_id, user, created).id, user, created)
+
+
+def client_folder(db: Session, company: Company, user: User, created: list) -> DocumentFolder:
+    """Dossier du client (01 Clients › <nom>) avec ses sous-dossiers, créé au besoin et relié à la société."""
+    folder = db.scalar(select(DocumentFolder).where(DocumentFolder.company_id == company.id))
+    if not folder:
+        root = _ensure(db, CLIENTS_ROOT, None, user, created)
+        name = company.name.strip().replace("/", "-")[:120] or f"Société {company.id}"
+        folder = _ensure(db, name, root.id, user, created)
+        if folder.company_id and folder.company_id != company.id:  # homonyme déjà relié à une autre société
+            folder = _ensure(db, f"{name} ({company.id})", root.id, user, created)
+        folder.company_id = company.id
+    for sub in CLIENT_SUBFOLDERS:
+        _ensure(db, sub, folder.id, user, created)
+    return folder
+
+
+def _folder_out(f: DocumentFolder, files: int = 0, folders: int = 0) -> dict:
+    return {
+        "id": f.id,
+        "name": f.name,
+        "parent_id": f.parent_id,
+        "company_id": f.company_id,
+        "files": files,
+        "folders": folders,
+    }
+
+
+@router.post("/files/folders/template")
+def create_template(user: User = Depends(manager_user), db: Session = Depends(get_db)):
+    """Crée l'organisation recommandée. Relançable : ce qui existe déjà est gardé, rien n'est déplacé."""
+    created: list[DocumentFolder] = []
+    _build(db, _template(), None, user, created)
+    db.commit()
+    audit(db, user.email, "folders_template", f"{len(created)} dossier(s) créé(s)")
+    return {"created": len(created)}
+
+
+@router.get("/files/clients/{company_id}")
+def company_folder(company_id: int, user: User = Depends(manager_user), db: Session = Depends(get_db)):
+    """Dossier du client et ses sous-dossiers (créés à la première ouverture depuis la fiche société)."""
+    company = db.get(Company, company_id)
+    if not company:
+        raise HTTPException(404)
+    created: list[DocumentFolder] = []
+    folder = client_folder(db, company, user, created)
+    db.commit()
+    if created:
+        audit(db, user.email, "client_folder_created", company.name)
+    # Sous-dossiers prévus d'abord, dans l'ordre d'usage, puis ceux ajoutés à la main.
+    order = {n.lower(): i for i, n in enumerate(CLIENT_SUBFOLDERS)}
+    subs = sorted(
+        db.scalars(select(DocumentFolder).where(DocumentFolder.parent_id == folder.id)),
+        key=lambda f: (order.get(f.name.lower(), len(order)), f.name.lower()),
+    )
+    return {**_folder_out(folder), "subfolders": [_folder_out(f) for f in subs]}
+
+
+@router.post("/files/clients")
+def create_all_client_folders(user: User = Depends(manager_user), db: Session = Depends(get_db)):
+    """Un dossier pour chaque société de type « client » qui n'en a pas encore."""
+    created: list[DocumentFolder] = []
+    clients = db.scalars(select(Company).where(Company.kind == "client").order_by(Company.name)).all()
+    for company in clients:
+        client_folder(db, company, user, created)
+    db.commit()
+    audit(db, user.email, "client_folders_created", f"{len(created)} dossier(s) créé(s)")
+    return {"clients": len(clients), "created": len(created)}
+
+
 @router.get("/files/folders", dependencies=[Depends(manager_user)])
 def list_folders(db: Session = Depends(get_db)):
     folders = db.scalars(select(DocumentFolder).order_by(DocumentFolder.name)).all()
@@ -494,16 +617,7 @@ def list_folders(db: Session = Depends(get_db)):
     for f in folders:
         if f.parent_id:
             subs[f.parent_id] = subs.get(f.parent_id, 0) + 1
-    return [
-        {
-            "id": f.id,
-            "name": f.name,
-            "parent_id": f.parent_id,
-            "files": files.get(f.id, 0),
-            "folders": subs.get(f.id, 0),
-        }
-        for f in folders
-    ]
+    return [_folder_out(f, files.get(f.id, 0), subs.get(f.id, 0)) for f in folders]
 
 
 @router.post("/files/folders", status_code=201)
@@ -515,7 +629,7 @@ def create_folder(body: FolderIn, user: User = Depends(manager_user), db: Sessio
     db.add(f)
     db.commit()
     audit(db, user.email, "folder_created", f.name)
-    return {"id": f.id, "name": f.name, "parent_id": f.parent_id, "files": 0, "folders": 0}
+    return _folder_out(f)
 
 
 @router.put("/files/folders/{folder_id}")
