@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { Row, api, apiUploadProgress, downloadFile } from "../api";
 import { useRefOptions } from "../components";
 import { Badge, Button, Card, Empty, ErrorMsg, Field, Loading, Modal, PageHeader, fmtDate, TableWrap } from "../ui";
@@ -49,7 +50,7 @@ function AnalysisModal({ file, onClose }: { file: Row; onClose: () => void }) {
   );
 }
 
-interface Folder { id: number; name: string; parent_id: number | null; files: number; folders: number }
+interface Folder { id: number; name: string; parent_id: number | null; company_id: number | null; files: number; folders: number }
 
 /** Chemin « RH › Contrats » d'un dossier. */
 function pathOf(folders: Folder[], id: number | null): Folder[] {
@@ -86,7 +87,20 @@ export default function Documents() {
   const companies = useRefOptions("/crm/companies", (r) => r.name);
   const names = Object.fromEntries(companies.map(([v, l]) => [v, l]));
   const [q, setQ] = useState("");
-  const [cwd, setCwd] = useState<number | null>(null); // dossier ouvert (null = racine)
+  // Dossier ouvert (null = racine), gardé dans l'URL : /documents?dossier=12 se partage.
+  const [params, setParams] = useSearchParams();
+  const cwd = Number(params.get("dossier")) || null;
+  const setCwd = (id: number | null) => setParams(id ? { dossier: String(id) } : {});
+  const [dropOn, setDropOn] = useState<number | "root" | null>(null);
+  const [orgMsg, setOrgMsg] = useState("");
+  const template = useMutation({ mutationFn: () => api<{ created: number }>("/files/folders/template", "POST"), onSuccess: (r) => { setOrgMsg(r.created ? `${r.created} dossier(s) créé(s).` : "L'organisation recommandée est déjà en place."); qc.invalidateQueries(); } });
+  const clientFolders = useMutation({ mutationFn: () => api<{ clients: number; created: number }>("/files/clients", "POST"), onSuccess: (r) => { setOrgMsg(`${r.clients} client(s) : ${r.created} dossier(s) créé(s) dans « 01 Clients ».`); qc.invalidateQueries(); } });
+  // Glisser une ligne de fichier sur un dossier (ou sur le fil d'Ariane) pour l'y déplacer.
+  const dropProps = (id: number | null) => ({
+    onDragOver: (e: React.DragEvent) => { if (e.dataTransfer.types.includes("application/x-hub-file")) { e.preventDefault(); setDropOn(id ?? "root"); } },
+    onDragLeave: () => setDropOn(null),
+    onDrop: (e: React.DragEvent) => { const fid = Number(e.dataTransfer.getData("application/x-hub-file")); setDropOn(null); if (fid) { e.preventDefault(); move.mutate([fid, id]); } },
+  });
   const [folderEdit, setFolderEdit] = useState<"new" | Folder | null>(null);
   const [moving, setMoving] = useState<Row | null>(null);
   const [analyzing, setAnalyzing] = useState<Row | null>(null);
@@ -160,20 +174,30 @@ export default function Documents() {
         <ErrorMsg error={up.error} />
       </Card>
       <Card title="Fichiers" action={<div className="flex flex-wrap items-center gap-2"><div className="w-56"><input placeholder="Rechercher dans tous les dossiers…" value={q} onChange={(e) => setQ(e.target.value)} /></div><Button data-tour="docs-new-folder" variant="soft" onClick={() => { saveFolder.reset(); setFolderEdit("new"); }}>+ Dossier</Button></div>}>
+        {!q && cwd === null && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 rounded border border-dashed border-slate-200 px-3 py-2 text-sm">
+            <span className="text-slate-600">Organisation :</span>
+            <Button variant="soft" busy={template.isPending} onClick={() => template.mutate()}>Créer l'organisation recommandée</Button>
+            <Button variant="ghost" busy={clientFolders.isPending} onClick={() => clientFolders.mutate()}>Créer les dossiers de tous les clients</Button>
+            {orgMsg && <span className="text-xs text-emerald-700">{orgMsg}</span>}
+            <ErrorMsg error={template.error ?? clientFolders.error} />
+          </div>
+        )}
         {!q && (
           <div data-tour="docs-folders" className="mb-3">
             <nav className="mb-3 flex flex-wrap items-center gap-1 text-sm" aria-label="Dossier ouvert">
-              <button className={cwd === null ? "font-semibold text-slate-900" : "text-brand-600 hover:underline"} onClick={() => setCwd(null)}>Documents</button>
-              {crumbs.map((c) => <span key={c.id} className="flex items-center gap-1"><span className="text-slate-300">›</span><button className={c.id === cwd ? "font-semibold text-slate-900" : "text-brand-600 hover:underline"} onClick={() => setCwd(c.id)}>{c.name}</button></span>)}
+              <button {...dropProps(null)} className={`rounded px-1 ${dropOn === "root" ? "bg-brand-50 ring-1 ring-brand-500" : ""} ${cwd === null ? "font-semibold text-slate-900" : "text-brand-600 hover:underline"}`} onClick={() => setCwd(null)}>Documents</button>
+              {crumbs.map((c) => <span key={c.id} className="flex items-center gap-1"><span className="text-slate-300">›</span><button {...dropProps(c.id)} className={`rounded px-1 ${dropOn === c.id ? "bg-brand-50 ring-1 ring-brand-500" : ""} ${c.id === cwd ? "font-semibold text-slate-900" : "text-brand-600 hover:underline"}`} onClick={() => setCwd(c.id)}>{c.name}</button></span>)}
             </nav>
             {here.length > 0 && (
               <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {here.map((f) => (
-                  <li key={f.id} className="group flex items-center justify-between gap-2 rounded border border-slate-200 bg-stone-50 px-3 py-2 hover:border-brand-500">
+                  <li key={f.id} {...dropProps(f.id)} className={`group flex items-center justify-between gap-2 rounded border px-3 py-2 hover:border-brand-500 ${dropOn === f.id ? "border-brand-500 bg-brand-50" : "border-slate-200 bg-stone-50"}`}>
                     <button className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm" onClick={() => setCwd(f.id)}>
-                      <span className="text-lg">📁</span><span className="min-w-0"><span className="block truncate font-medium text-slate-800">{f.name}</span><span className="block text-xs text-slate-400">{f.files + f.folders === 0 ? "vide" : [f.files && `${f.files} fichier(s)`, f.folders && `${f.folders} dossier(s)`].filter(Boolean).join(" · ")}</span></span>
+                      <span className="text-lg">📁</span><span className="min-w-0"><span className="block truncate font-medium text-slate-800">{f.name}{f.company_id && <span className="ml-1" title="Dossier client, relié à la fiche société">🏢</span>}</span><span className="block text-xs text-slate-400">{f.files + f.folders === 0 ? "vide" : [f.files && `${f.files} fichier(s)`, f.folders && `${f.folders} dossier(s)`].filter(Boolean).join(" · ")}</span></span>
                     </button>
                     <span className="flex shrink-0 gap-2 text-xs">
+                      {f.company_id && <Link className="text-brand-600" to={`/crm/societes/${f.company_id}`}>Fiche</Link>}
                       <button className="text-brand-600" onClick={() => { saveFolder.reset(); setFolderEdit(f); }}>Renommer</button>
                       {f.files + f.folders === 0 && <button className="text-red-500" onClick={() => confirm(`Supprimer le dossier « ${f.name} » ?`) && delFolder.mutate(f.id)}>Supprimer</button>}
                     </span>
@@ -186,7 +210,7 @@ export default function Documents() {
         <ErrorMsg error={delFolder.error ?? move.error} />
         {list.isLoading ? <Loading /> : !list.data?.length ? (q ? <Empty>Aucun document ne correspond.</Empty> : !here.length && <Empty>{cwd ? "Dossier vide : téléversez un fichier ou créez un sous-dossier." : "Aucun document."}</Empty>) : (
           <TableWrap><table className="w-full min-w-[480px] text-sm"><tbody className="divide-y divide-slate-100">
-            {list.data.map((r) => <tr key={r.id}>
+            {list.data.map((r) => <tr key={r.id} draggable onDragStart={(e) => { e.dataTransfer.setData("application/x-hub-file", String(r.id)); e.dataTransfer.effectAllowed = "move"; }} className="cursor-grab" title="Glissez sur un dossier pour l'y ranger">
               <td className="py-2.5 pr-3">{VIDEO.test(r.original_name) && <button className="mr-1.5 text-brand-600" title="Lire la vidéo" onClick={() => setPlaying(r)}>▶</button>}<button className="font-medium text-brand-600" onClick={() => downloadFile(`/files/${r.id}/download`, r.original_name)}> {r.name}</button><span className="block text-xs text-slate-400">{q && <>📁 {pathLabel(r.folder_id)} · </>}{r.original_name} · {size(r.size)}</span></td>
               <td className="pr-3"><Badge>{CATS.find(([k]) => k === r.category)?.[1] ?? r.category}</Badge></td><td className="pr-3 text-slate-500">{names[r.company_id] ?? ""}</td>
               <td className="pr-3">{r.expires_on && <Badge tone={r.expires_on < today ? "red" : "amber"}>Expire le {fmtDate(r.expires_on)}</Badge>}</td>

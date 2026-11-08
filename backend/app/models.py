@@ -632,6 +632,10 @@ class DocumentFolder(Base):
     parent_id: Mapped[int | None] = mapped_column(
         ForeignKey("document_folders.id", ondelete="CASCADE"), nullable=True, index=True
     )
+    # Dossier d'un client (01 Clients › <société>) : relié à sa fiche du CRM.
+    company_id: Mapped[int | None] = mapped_column(
+        ForeignKey("companies.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_by: Mapped[str] = mapped_column(String(255), default="")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
