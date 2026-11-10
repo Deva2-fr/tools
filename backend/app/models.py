@@ -199,9 +199,6 @@ class MailMessage(Base):
     received_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
     auto_tag: Mapped[str] = mapped_column(String(20), default="info")  # a_repondre | repondu | info
-    # Analyse par l'IA : résumé en une phrase et intention (demande_devis, question, reclamation…).
-    ai_summary: Mapped[str] = mapped_column(String(400), default="")
-    ai_intent: Mapped[str] = mapped_column(String(30), default="")
     manual_tag: Mapped[str | None] = mapped_column(String(20), nullable=True)  # a_repondre|urgent|fait|ignore
 
 
@@ -678,56 +675,3 @@ class AccessEntry(Base):
     last_rotated: Mapped[date | None] = mapped_column(Date, nullable=True)
     rotate_every_days: Mapped[int] = mapped_column(Integer, default=365)
     notes: Mapped[str] = mapped_column(Text, default="")
-
-
-# ======================= Copilote IA =======================
-class CopilotConversation(Base):
-    __tablename__ = "copilot_conversations"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    title: Mapped[str] = mapped_column(String(200), default="Nouvelle conversation")
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
-    messages: Mapped[list["CopilotMessage"]] = relationship(
-        back_populates="conversation", cascade="all, delete-orphan", order_by="CopilotMessage.id"
-    )
-
-
-class CopilotMessage(Base):
-    __tablename__ = "copilot_messages"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    conversation_id: Mapped[int] = mapped_column(
-        ForeignKey("copilot_conversations.id", ondelete="CASCADE"), index=True
-    )
-    role: Mapped[str] = mapped_column(String(12))  # user | assistant
-    content: Mapped[str] = mapped_column(Text, default="")
-    actions: Mapped[str] = mapped_column(Text, default="")  # propositions d'action (JSON)
-    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
-    conversation: Mapped[CopilotConversation] = relationship(back_populates="messages")
-
-
-class CopilotBrief(Base):
-    """Brief du matin rédigé par l'IA, mis en cache une fois par jour et par utilisateur."""
-
-    __tablename__ = "copilot_briefs"
-    __table_args__ = (UniqueConstraint("user_id", "day", name="uq_copilot_briefs_user_day"),)
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    day: Mapped[date] = mapped_column(Date)
-    content: Mapped[str] = mapped_column(Text, default="")
-    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
-
-
-class CopilotUsage(Base):
-    """Consommation de l'IA hors conversations (analyse des mails…), pour le budget mensuel."""
-
-    __tablename__ = "copilot_usage"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    kind: Mapped[str] = mapped_column(String(40))
-    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)

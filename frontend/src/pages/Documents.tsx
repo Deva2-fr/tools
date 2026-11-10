@@ -1,54 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Row, api, apiUploadProgress, downloadFile } from "../api";
+import { Row, api, downloadFile } from "../api";
+import { UploadItem, folderCount, fromDrop, fromInput, uploadItems } from "../upload";
 import { useRefOptions } from "../components";
 import { Badge, Button, Card, Empty, ErrorMsg, Field, Loading, Modal, PageHeader, fmtDate, TableWrap } from "../ui";
-
-interface Analysis { title: string; summary: string; parties: string[]; amount: string; key_dates: { label: string; date: string }[]; notice: string; points_attention: string[] }
-
-/** Analyse d'un contrat par l'IA : résumé, dates clés (transformables en rappels), préavis. */
-function AnalysisModal({ file, onClose }: { file: Row; onClose: () => void }) {
-  const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["file-ai", file.id], queryFn: () => api<Analysis>(`/files/${file.id}/ai-analyze`, "POST"), staleTime: Infinity, retry: false });
-  const [done, setDone] = useState<string[]>([]);
-  const remind = useMutation({
-    mutationFn: (d: { label: string; date: string }) => api("/crm/tasks", "POST", { title: `${d.label} – ${file.name}`, due_date: d.date, company_id: file.company_id ?? null, notes: "Créé depuis l'analyse IA du document." }),
-    onSuccess: (_r, d) => { setDone((x) => [...x, d.date + d.label]); qc.invalidateQueries({ queryKey: ["tasks"] }); },
-  });
-  const a = q.data;
-  return (
-    <Modal title={`✨ Analyse : ${file.name}`} onClose={onClose} wide>
-      {q.isLoading ? <p className="flex items-center gap-2 py-6 text-sm text-slate-500"><span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />L'IA lit le document…</p> : q.error ? <ErrorMsg error={q.error} /> : a && (
-        <div className="space-y-4 text-sm">
-          <div><p className="font-serif text-lg text-slate-900">{a.title}</p><p className="mt-1 text-slate-600">{a.summary}</p></div>
-          <dl className="grid gap-x-4 gap-y-1 sm:grid-cols-[140px_1fr]">
-            {a.parties.length > 0 && <><dt className="text-slate-400">Parties</dt><dd>{a.parties.join(", ")}</dd></>}
-            {a.amount && <><dt className="text-slate-400">Montant</dt><dd>{a.amount}</dd></>}
-            {a.notice && <><dt className="text-slate-400">Préavis</dt><dd>{a.notice}</dd></>}
-          </dl>
-          {a.key_dates.length > 0 && (
-            <div>
-              <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Dates clés</p>
-              <ul className="divide-y divide-slate-100 rounded border border-slate-200">
-                {a.key_dates.map((d) => (
-                  <li key={d.date + d.label} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-                    <span><b>{fmtDate(d.date)}</b> · {d.label}</span>
-                    {done.includes(d.date + d.label) ? <span className="text-xs text-emerald-700">✓ Rappel créé</span>
-                      : <button className="text-xs font-medium text-brand-600 hover:underline" disabled={remind.isPending} onClick={() => remind.mutate(d)}>+ Créer un rappel</button>}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {a.points_attention.length > 0 && <div><p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Points d'attention</p><ul className="list-disc space-y-0.5 pl-5">{a.points_attention.map((p) => <li key={p}>{p}</li>)}</ul></div>}
-          <ErrorMsg error={remind.error} />
-          <p className="text-xs text-slate-400">Résumé généré par l'IA : vérifiez les dates importantes dans le document.</p>
-        </div>
-      )}
-    </Modal>
-  );
-}
 
 interface Folder { id: number; name: string; parent_id: number | null; company_id: number | null; files: number; folders: number }
 
@@ -103,7 +59,6 @@ export default function Documents() {
   });
   const [folderEdit, setFolderEdit] = useState<"new" | Folder | null>(null);
   const [moving, setMoving] = useState<Row | null>(null);
-  const [analyzing, setAnalyzing] = useState<Row | null>(null);
   const foldersQ = useQuery({ queryKey: ["file-folders"], queryFn: () => api<Folder[]>("/files/folders") });
   const folders = foldersQ.data ?? [];
   const crumbs = pathOf(folders, cwd);
@@ -116,48 +71,43 @@ export default function Documents() {
   const delFolder = useMutation({ mutationFn: (id: number) => api(`/files/folders/${id}`, "DELETE"), onSuccess: () => qc.invalidateQueries() });
   const move = useMutation({ mutationFn: ([id, folder_id]: [number, number | null]) => api(`/files/${id}/folder`, "PUT", { folder_id }), onSuccess: () => { setMoving(null); qc.invalidateQueries(); } });
   const [f, setF] = useState({ name: "", category: "legal", company_id: "", expires_on: "", notes: "" });
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState<UploadItem[]>([]);
+  const dirInput = useRef<HTMLInputElement>(null);
   const [progress, setProgress] = useState<{ i: number; n: number; pct: number } | null>(null);
   const [failed, setFailed] = useState<string[]>([]);
   const [dragging, setDragging] = useState(false);
   const [playing, setPlaying] = useState<Row | null>(null);
   const list = useQuery({ queryKey: ["files", q, cwd], queryFn: () => api<Row[]>(`/files?q=${encodeURIComponent(q)}${cwd ? `&folder_id=${cwd}` : ""}`) });
-  // Les fichiers partent l'un après l'autre avec les mêmes réglages ; un refus n'arrête pas les suivants.
+  // Les fichiers partent l'un après l'autre avec les mêmes réglages, dossiers déposés recréés à l'identique.
   const up = useMutation({
-    mutationFn: async () => {
-      const errors: string[] = [];
-      for (const [i, file] of files.entries()) {
-        setProgress({ i: i + 1, n: files.length, pct: 0 });
-        const fd = new FormData();
-        fd.append("file", file);
-        if (cwd) fd.append("folder_id", String(cwd));
-        for (const [k, v] of Object.entries(f)) if (v && !(k === "name" && files.length > 1)) fd.append(k, v);
-        try { await apiUploadProgress("/files", fd, (pct) => setProgress({ i: i + 1, n: files.length, pct })); }
-        catch (e) { errors.push(`${file.name} : ${e instanceof Error ? e.message : String(e)}`); }
-      }
-      return errors;
+    mutationFn: () => {
+      const fields = { ...f, name: files.length > 1 ? "" : f.name };
+      return uploadItems(files, cwd, fields, (i, n, pct) => setProgress({ i, n, pct }));
     },
     onSuccess: (errors) => { setFailed(errors); setFiles([]); setF({ ...f, name: "", notes: "" }); qc.invalidateQueries(); },
     onSettled: () => setProgress(null),
   });
-  const pick = (list: FileList | null) => { if (list?.length) { setFiles(Array.from(list)); setFailed([]); } };
+  const pick = (items: UploadItem[]) => { if (items.length) { setFiles(items); setFailed([]); } };
+  const dirs = folderCount(files);
   const del = useMutation({ mutationFn: (id: number) => api(`/files/${id}`, "DELETE"), onSuccess: () => qc.invalidateQueries() });
   const today = new Date().toISOString().slice(0, 10);
   return (
     <>
-      <PageHeader title="Documents" subtitle="Le coffre de l'entreprise : Kbis, statuts, contrats, assurances, vidéos… PDF, images, Word, Excel jusqu'à 25 Mo ; vidéos MP4, MOV, WEBM jusqu'à 500 Mo. Plusieurs fichiers à la fois." />
+      <PageHeader title="Documents" subtitle="Le coffre de l'entreprise : Kbis, statuts, contrats, assurances, vidéos… PDF, images, Word, Excel jusqu'à 25 Mo ; vidéos MP4, MOV, WEBM jusqu'à 500 Mo. Plusieurs fichiers ou des dossiers entiers à la fois." />
       <Card className="mb-6">
         <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" onSubmit={(e) => { e.preventDefault(); if (files.length) up.mutate(); }}>
           <div className="lg:col-span-2">
             <span className="mb-1 block text-xs font-medium text-slate-700">Fichiers *</span>
-              <label onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); pick(e.dataTransfer.files); }}
+              <label onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); fromDrop(e.dataTransfer).then(pick); }}
                 className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded border-2 border-dashed px-3 py-4 text-center text-sm transition ${dragging ? "border-brand-500 bg-brand-50" : "border-slate-200 hover:border-brand-500"}`}>
-                <input type="file" multiple className="sr-only" onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
-                {files.length ? <span className="text-slate-700"><b>{files.length}</b> fichier(s) : {files.slice(0, 3).map((x) => x.name).join(", ")}{files.length > 3 && "…"} · {size(files.reduce((t, x) => t + x.size, 0))}</span>
-                  : <span className="text-slate-500">Glissez vos fichiers ici ou <span className="font-medium text-brand-600">cliquez pour choisir</span> (plusieurs possibles)</span>}
+                <input type="file" multiple className="sr-only" onChange={(e) => { pick(fromInput(e.target.files)); e.target.value = ""; }} />
+                {files.length ? <span className="text-slate-700"><b>{files.length}</b> fichier(s){dirs > 0 && <> dans <b>{dirs}</b> dossier(s)</>} : {files.slice(0, 3).map((x) => [...x.dirs, x.file.name].join("/")).join(", ")}{files.length > 3 && "…"} · {size(files.reduce((t, x) => t + x.file.size, 0))}</span>
+                  : <span className="text-slate-500">Glissez des fichiers <b>ou des dossiers</b> ici, ou <span className="font-medium text-brand-600">cliquez pour choisir des fichiers</span></span>}
               </label>
+              <input ref={dirInput} type="file" className="sr-only" {...{ webkitdirectory: "", directory: "" }} onChange={(e) => { pick(fromInput(e.target.files)); e.target.value = ""; }} />
+              <button type="button" className="mt-1 text-xs font-medium text-brand-600 hover:underline" onClick={() => dirInput.current?.click()}>📁 Choisir un dossier entier…</button>
           </div>
-          <Field label="Nom affiché" hint={files.length > 1 ? "Plusieurs fichiers : chacun garde son nom" : undefined}><input value={f.name} disabled={files.length > 1} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder={files[0]?.name} /></Field>
+          <Field label="Nom affiché" hint={files.length > 1 ? "Plusieurs fichiers : chacun garde son nom" : undefined}><input value={f.name} disabled={files.length > 1} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder={files[0]?.file.name} /></Field>
           <Field label="Catégorie"><select value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}>{CATS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
           <Field label="Société liée"><select value={f.company_id} onChange={(e) => setF({ ...f, company_id: e.target.value })}><option value="">—</option>{companies.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
           <Field label="Date d'expiration" hint="Ex : fin de contrat, validité d'une attestation"><input type="date" value={f.expires_on} onChange={(e) => setF({ ...f, expires_on: e.target.value })} /></Field>
@@ -214,7 +164,7 @@ export default function Documents() {
               <td className="py-2.5 pr-3">{VIDEO.test(r.original_name) && <button className="mr-1.5 text-brand-600" title="Lire la vidéo" onClick={() => setPlaying(r)}>▶</button>}<button className="font-medium text-brand-600" onClick={() => downloadFile(`/files/${r.id}/download`, r.original_name)}> {r.name}</button><span className="block text-xs text-slate-400">{q && <>📁 {pathLabel(r.folder_id)} · </>}{r.original_name} · {size(r.size)}</span></td>
               <td className="pr-3"><Badge>{CATS.find(([k]) => k === r.category)?.[1] ?? r.category}</Badge></td><td className="pr-3 text-slate-500">{names[r.company_id] ?? ""}</td>
               <td className="pr-3">{r.expires_on && <Badge tone={r.expires_on < today ? "red" : "amber"}>Expire le {fmtDate(r.expires_on)}</Badge>}</td>
-              <td className="whitespace-nowrap text-right text-xs">{/\.(pdf|png|jpe?g)$/i.test(r.original_name) && <button className="mr-3 font-medium text-brand-600" onClick={() => setAnalyzing(r)}>✨ Analyser</button>}<button className="mr-3 text-brand-600" onClick={() => setMoving(r)}>Déplacer</button><button className="text-red-500" onClick={() => confirm("Supprimer ce fichier ?") && del.mutate(r.id)}>Supprimer</button></td></tr>)}
+              <td className="whitespace-nowrap text-right text-xs"><button className="mr-3 text-brand-600" onClick={() => setMoving(r)}>Déplacer</button><button className="text-red-500" onClick={() => confirm("Supprimer ce fichier ?") && del.mutate(r.id)}>Supprimer</button></td></tr>)}
           </tbody></table></TableWrap>
         )}
       </Card>
@@ -224,7 +174,6 @@ export default function Documents() {
           <p className="mt-2 text-xs text-slate-400">Si la vidéo ne se lit pas (certains formats iPhone), <button className="text-brand-600 underline" onClick={() => downloadFile(`/files/${playing.id}/download`, playing.original_name)}>téléchargez-la</button>.</p>
         </Modal>
       )}
-      {analyzing && <AnalysisModal file={analyzing} onClose={() => setAnalyzing(null)} />}
       {folderEdit && <FolderModal title={folderEdit === "new" ? `Nouveau dossier dans « ${pathLabel(cwd)} »` : "Renommer le dossier"} initial={folderEdit === "new" ? "" : folderEdit.name}
         onSave={(n) => saveFolder.mutate(n)} onClose={() => setFolderEdit(null)} busy={saveFolder.isPending} error={saveFolder.error} />}
       {moving && (

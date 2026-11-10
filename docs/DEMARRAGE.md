@@ -183,7 +183,7 @@ Clé API NVD **gratuite** : <https://nvd.nist.gov/developers/request-an-api-key>
 | **Abonnements & contrats** | domaines (deva2.fr, formasyl.org…), hébergement, assurances, logiciels, avec **date de renouvellement** et « m'alerter N jours avant » |
 | **Impôts & TVA** | bouton *Pré-remplir l'année* puis **faites valider les dates par votre comptable** |
 | **Registre des accès** | où est chaque mot de passe (jamais le mot de passe lui-même) |
-| **Documents** | Le « Drive » de l'entreprise : bouton « Créer l'organisation recommandée » (01 Clients, 02 Administration, 03 Comptabilité, 04 RH…), un dossier par client relié à sa fiche société (onglet Documents de la fiche). PDF, Word, Excel, images jusqu'à 25 Mo ; MP4, MOV, WEBM jusqu'à 500 Mo ; plusieurs fichiers à la fois ; glisser un fichier sur un dossier pour l'y ranger |
+| **Documents** | Le « Drive » de l'entreprise : bouton « Créer l'organisation recommandée » (01 Clients, 02 Administration, 03 Comptabilité, 04 RH…), un dossier par client relié à sa fiche société (onglet Documents de la fiche). PDF, Word, Excel, images jusqu'à 25 Mo ; MP4, MOV, WEBM jusqu'à 500 Mo ; plusieurs fichiers ou des dossiers entiers à la fois (sous-dossiers recréés) ; glisser un fichier sur un dossier pour l'y ranger |
 
 ---
 

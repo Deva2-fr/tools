@@ -5,7 +5,6 @@ import pytest
 
 from app.models import BillingDoc
 from app.services import integrations, qonto, qonto_billing, qonto_oauth
-from tests.llm_fake import FakeLLM
 
 
 def make_quote(client, company_name="Formasyl"):
@@ -26,62 +25,6 @@ def make_quote(client, company_name="Formasyl"):
             ],
         },
     ).json()
-
-
-PROPOSAL = {
-    "title": "Refonte du site vitrine Formasyl",
-    "lines": [
-        {
-            "description": "Conception et développement du site\nMaquettes, intégration, 10 pages",
-            "quantity": 1,
-            "unit_price": 3000,
-            "vat_rate": 20,
-        },
-        {
-            "description": "Hébergement et maintenance (mensuel)",
-            "quantity": 12,
-            "unit_price": 25,
-            "vat_rate": 7,
-        },
-    ],
-    "notes": "Délai : 6 semaines. Acompte de 30 % à la commande.",
-    "changes": ["Intitulés précisés", "Conditions ajoutées"],
-}
-
-
-def test_ai_improve_returns_proposal_without_saving(client, db, monkeypatch):
-    q = make_quote(client)
-    body = {
-        "instructions": "plus pro",
-        "title": q["title"],
-        "notes": "",
-        "lines": [
-            {k: ln[k] for k in ("description", "quantity", "unit_price", "vat_rate")} for ln in q["lines"]
-        ],
-    }
-    r = client.post(f"/api/billing/{q['id']}/ai-improve", json=body)
-    assert r.status_code == 400 and "clé API Gemini" in r.json()["detail"]
-
-    fake = FakeLLM(monkeypatch, payload=PROPOSAL)
-    integrations.put(db, "gemini_api_key", "AIza-test")
-    r = client.post(f"/api/billing/{q['id']}/ai-improve", json=body)
-    assert r.status_code == 200, r.text
-    p = r.json()
-    assert p["title"] == "Refonte du site vitrine Formasyl" and p["changes"] == [
-        "Intitulés précisés",
-        "Conditions ajoutées",
-    ]
-    assert p["lines"][1]["vat_rate"] == 20  # taux non autorisé (7) ramené à 20
-    call = fake.calls[0]
-    assert call["schema"]["required"] == ["title", "lines", "notes", "changes"] and "tools" not in call
-    sent = json.loads(call["contents"][0]["parts"][0]["text"])
-    assert sent["client"] == "Formasyl" and sent["consigne_utilisateur"] == "plus pro"
-    # Rien n'est enregistré tant que l'utilisateur n'applique pas la proposition
-    assert client.get(f"/api/billing/{q['id']}").json()["title"] == "site"
-
-    FakeLLM(monkeypatch, payload={}, finish="refusal")
-    r = client.post(f"/api/billing/{q['id']}/ai-improve", json=body)
-    assert r.status_code == 400 and "refusé" in r.json()["detail"]
 
 
 class FakeQonto:

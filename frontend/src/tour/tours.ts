@@ -29,12 +29,10 @@ export const TOURS: Record<string, TourStep[]> = {
     { title: "Bienvenue dans le Hub Deva2", body: "Tout l'outil de gestion de Deva2 au même endroit. Chaque page a son petit guide, lancé la première fois que vous l'ouvrez." },
     { target: "nav", title: "Le menu", body: "Toutes les sections, rangées par thème : commercial, finances, équipe, infrastructure." },
     { target: "search", title: "La recherche", body: "Retrouvez une société, un contact ou un devis depuis n'importe où (⌘K / Ctrl+K)." },
-    { target: "copilot", title: "Le copilote IA", body: "Posez vos questions sur tout le Hub : il fait les liens et vous propose des actions, que vous validez (⌘J / Ctrl+J)." },
     { target: "guide", title: "Revoir un guide", body: "Ce bouton relance le guide de la page où vous êtes." },
   ],
   dashboard: [
     { target: "page-title", title: "Tableau de bord", body: "L'essentiel du jour en un coup d'œil. Chaque chiffre mène à la section concernée." },
-    { target: "dash-brief", title: "Le brief du jour", body: "L'IA résume chaque matin ce qui compte et suggère des actions : relances, clients silencieux, temps non facturé…" },
     { target: "dash-tech", title: "Santé technique", body: "Sites en ligne, alertes, failles et mails à répondre." },
     { target: "dash-finance", title: "Finances", body: "CA facturé, reste à encaisser, trésorerie et pipeline." },
   ],
@@ -77,7 +75,6 @@ export const TOURS: Record<string, TourStep[]> = {
   billingEditor: [
     { target: "page-title", title: "Le devis", body: "Préparez votre devis : rien n'est envoyé sans votre action." },
     { target: "card:lignes", title: "Les lignes", body: "Une ligne par prestation ; les totaux se calculent seuls." },
-    { target: "editor-ai", title: "L'IA", body: "Propose une version plus claire et professionnelle, que vous appliquez ou non." },
     { target: "editor-push", title: "Vers Qonto", body: "Crée le devis dans Qonto en attente de validation." },
   ],
   treasury: [
@@ -92,7 +89,7 @@ export const TOURS: Record<string, TourStep[]> = {
   ],
   expenses: [
     { target: "page-title", title: "Notes de frais", body: "Remplissez, faites signer, joignez les justificatifs : le PDF est généré et rangé dans Drive." },
-    { target: "exp-receipts", title: "Les justificatifs", body: "Ajoutez le ticket puis « ✨ Remplir avec l'IA » : date, montant, TVA et motif sont lus pour vous." },
+    { target: "exp-receipts", title: "Les justificatifs", body: "Ajoutez les tickets et factures : ils sont joints à la fin du PDF, dans l'ordre." },
     { target: "exp-signatures", title: "Les signatures", body: "Demandeur, président et associé." },
     { target: "card:historique", title: "L'historique", body: "Retrouvez et retéléchargez toutes les notes." },
   ],
@@ -135,7 +132,7 @@ export const TOURS: Record<string, TourStep[]> = {
   ],
   settings: [
     { target: "page-title", title: "Paramètres", body: "Votre compte et, pour les administrateurs, les intégrations et les utilisateurs." },
-    { target: "settings-tabs", title: "Les onglets", body: "Sécurité du compte, connexions (Qonto, Google, mails, IA…) et utilisateurs." },
+    { target: "settings-tabs", title: "Les onglets", body: "Sécurité du compte, connexions (Qonto, Google, mails…) et utilisateurs." },
     { target: "card:double-authentification", title: "Sécurité", body: "Activez la double authentification : fortement recommandé." },
   ],
   profile: [

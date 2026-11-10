@@ -34,7 +34,7 @@ function LinkSuggestions() {
   return (
     <div data-tour="subs-link-sugg" className="mb-6 rounded-md border border-brand-600/25 bg-brand-50/40 p-4">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-medium text-slate-800">✨ {data.length} prélèvement(s) semblent correspondre à vos abonnements</p>
+        <p className="text-sm font-medium text-slate-800">🔗 {data.length} prélèvement(s) semblent correspondre à vos abonnements</p>
         <Button variant="soft" busy={add.isPending} onClick={() => add.mutate(data)}>Tout lier</Button>
       </div>
       <ul className="divide-y divide-brand-600/10 text-sm">

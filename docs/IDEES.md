@@ -17,7 +17,6 @@ Classées par rapport effort / valeur. Elles s'intègrent naturellement dans l'a
 12. **Obligations légales** : AG annuelle, dépôt des comptes, registre des bénéficiaires effectifs, mise à jour du Kbis.
 
 ## ✉️ Mails & productivité
-15. **Brouillon de réponse assisté par IA** pour les mails « À répondre » (vous relisez et envoyez).
 17. **Rappel de relance** : si vous attendez la réponse d'un client depuis X jours, le Hub vous le dit.
 18. **Application mobile (PWA)** installable avec notifications push.
 
