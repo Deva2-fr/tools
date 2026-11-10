@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Row, api, apiUploadProgress, downloadFile } from "../../api";
+import { Row, api, downloadFile } from "../../api";
+import { UploadItem, fromDrop, fromInput, uploadItems } from "../../upload";
 import { Card, Empty, ErrorMsg, Loading, fmtDate } from "../../ui";
 
 interface SubFolder { id: number; name: string }
@@ -16,29 +17,19 @@ export function CompanyDocuments({ companyId }: { companyId: number }) {
   const [dragging, setDragging] = useState(false);
   const [progress, setProgress] = useState("");
   const [failed, setFailed] = useState<string[]>([]);
+  const dirInput = useRef<HTMLInputElement>(null);
   const subs = folder.data?.subfolders ?? [];
   const dest = target ?? subs[0]?.id ?? folder.data?.id ?? null;
   const names = Object.fromEntries([...subs.map((s) => [s.id, s.name]), [folder.data?.id, "Dossier client"]]);
 
-  // Envoi l'un après l'autre dans le sous-dossier choisi, fichiers liés à la société.
+  // Envoi l'un après l'autre dans le sous-dossier choisi (dossiers déposés recréés), fichiers liés à la société.
   const up = useMutation({
-    mutationFn: async (list: File[]) => {
-      const errors: string[] = [];
-      for (const [i, file] of list.entries()) {
-        const fd = new FormData();
-        fd.append("file", file);
-        fd.append("company_id", String(companyId));
-        fd.append("category", "contrat");
-        if (dest) fd.append("folder_id", String(dest));
-        try { await apiUploadProgress("/files", fd, (pct) => setProgress(`Envoi ${list.length > 1 ? `${i + 1}/${list.length} – ` : ""}${pct} %`)); }
-        catch (e) { errors.push(`${file.name} : ${e instanceof Error ? e.message : String(e)}`); }
-      }
-      return errors;
-    },
+    mutationFn: (list: UploadItem[]) =>
+      uploadItems(list, dest, { company_id: String(companyId), category: "contrat" }, (i, n, pct) => setProgress(`Envoi ${n > 1 ? `${i}/${n} – ` : ""}${pct} %`)),
     onSuccess: (errors) => { setFailed(errors); qc.invalidateQueries({ queryKey: ["files"] }); qc.invalidateQueries({ queryKey: ["file-folders"] }); },
     onSettled: () => setProgress(""),
   });
-  const send = (list: FileList | null) => { if (list?.length) { setFailed([]); up.mutate(Array.from(list)); } };
+  const send = (list: UploadItem[]) => { if (list.length) { setFailed([]); up.mutate(list); } };
 
   return (
     <Card title="Documents" className="lg:col-span-2" action={folder.data && <Link className="text-xs font-medium text-brand-600 hover:underline" to={`/documents?dossier=${folder.data.id}`}>Ouvrir dans Documents →</Link>}>
@@ -50,12 +41,14 @@ export function CompanyDocuments({ companyId }: { companyId: number }) {
                 className={`rounded-full border px-2.5 py-1 text-xs ${dest === s.id ? "border-brand-600 bg-brand-50 font-medium text-brand-700" : "border-slate-200 text-slate-600 hover:border-brand-500"}`}>📁 {s.name}</button>
             ))}
           </div>
-          <label onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); send(e.dataTransfer.files); }}
+          <label onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); fromDrop(e.dataTransfer).then(send); }}
             className={`flex cursor-pointer items-center justify-center rounded border-2 border-dashed px-3 py-3 text-center text-sm transition ${dragging ? "border-brand-500 bg-brand-50" : "border-slate-200 hover:border-brand-500"}`}>
-            <input type="file" multiple className="sr-only" disabled={up.isPending} onChange={(e) => { send(e.target.files); e.target.value = ""; }} />
+            <input type="file" multiple className="sr-only" disabled={up.isPending} onChange={(e) => { send(fromInput(e.target.files)); e.target.value = ""; }} />
             {progress ? <span className="text-slate-600">{progress}</span>
-              : <span className="text-slate-500">Glissez des fichiers ici ou <span className="font-medium text-brand-600">cliquez</span> : rangés dans « {names[dest ?? 0] ?? "Dossier client"} »</span>}
+              : <span className="text-slate-500">Glissez des fichiers ou des dossiers ici, ou <span className="font-medium text-brand-600">cliquez</span> : rangés dans « {names[dest ?? 0] ?? "Dossier client"} »</span>}
           </label>
+          <input ref={dirInput} type="file" className="sr-only" disabled={up.isPending} {...{ webkitdirectory: "", directory: "" }} onChange={(e) => { send(fromInput(e.target.files)); e.target.value = ""; }} />
+          <button type="button" className="text-xs font-medium text-brand-600 hover:underline" onClick={() => dirInput.current?.click()}>📁 Choisir un dossier entier…</button>
           {failed.length > 0 && <div className="rounded bg-red-50 px-3 py-2 text-xs text-red-700">{failed.map((m) => <p key={m}>{m}</p>)}</div>}
           {files.isLoading ? <Loading /> : !files.data?.length ? <Empty>Aucun document pour ce client.</Empty> : (
             <ul className="divide-y divide-slate-100 text-sm">

@@ -564,6 +564,28 @@ def _folder_out(f: DocumentFolder, files: int = 0, folders: int = 0) -> dict:
     }
 
 
+class FolderPathIn(BaseModel):
+    parent_id: int | None = None
+    path: list[str] = Field(min_length=1, max_length=20)
+
+
+@router.post("/files/folders/path")
+def ensure_folder_path(body: FolderPathIn, user: User = Depends(manager_user), db: Session = Depends(get_db)):
+    """Dépôt d'un dossier : crée (ou réutilise) la suite de sous-dossiers `path` sous `parent_id`."""
+    _folder(db, body.parent_id)
+    created: list[DocumentFolder] = []
+    parent_id = body.parent_id
+    for raw in body.path:
+        name = raw.strip().replace("/", "-").replace("\\", "-")[:120]
+        if not name or name in (".", ".."):
+            raise HTTPException(400, "Nom de dossier invalide.")
+        parent_id = _ensure(db, name, parent_id, user, created).id
+    db.commit()
+    if created:
+        audit(db, user.email, "folder_uploaded", "/".join(body.path)[:300])
+    return {"id": parent_id, "created": len(created)}
+
+
 @router.post("/files/folders/template")
 def create_template(user: User = Depends(manager_user), db: Session = Depends(get_db)):
     """Crée l'organisation recommandée. Relançable : ce qui existe déjà est gardé, rien n'est déplacé."""

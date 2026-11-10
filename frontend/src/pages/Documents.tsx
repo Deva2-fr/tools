@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Row, api, apiUploadProgress, downloadFile } from "../api";
+import { Row, api, downloadFile } from "../api";
+import { UploadItem, folderCount, fromDrop, fromInput, uploadItems } from "../upload";
 import { useRefOptions } from "../components";
 import { Badge, Button, Card, Empty, ErrorMsg, Field, Loading, Modal, PageHeader, fmtDate, TableWrap } from "../ui";
 
@@ -70,48 +71,43 @@ export default function Documents() {
   const delFolder = useMutation({ mutationFn: (id: number) => api(`/files/folders/${id}`, "DELETE"), onSuccess: () => qc.invalidateQueries() });
   const move = useMutation({ mutationFn: ([id, folder_id]: [number, number | null]) => api(`/files/${id}/folder`, "PUT", { folder_id }), onSuccess: () => { setMoving(null); qc.invalidateQueries(); } });
   const [f, setF] = useState({ name: "", category: "legal", company_id: "", expires_on: "", notes: "" });
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState<UploadItem[]>([]);
+  const dirInput = useRef<HTMLInputElement>(null);
   const [progress, setProgress] = useState<{ i: number; n: number; pct: number } | null>(null);
   const [failed, setFailed] = useState<string[]>([]);
   const [dragging, setDragging] = useState(false);
   const [playing, setPlaying] = useState<Row | null>(null);
   const list = useQuery({ queryKey: ["files", q, cwd], queryFn: () => api<Row[]>(`/files?q=${encodeURIComponent(q)}${cwd ? `&folder_id=${cwd}` : ""}`) });
-  // Les fichiers partent l'un après l'autre avec les mêmes réglages ; un refus n'arrête pas les suivants.
+  // Les fichiers partent l'un après l'autre avec les mêmes réglages, dossiers déposés recréés à l'identique.
   const up = useMutation({
-    mutationFn: async () => {
-      const errors: string[] = [];
-      for (const [i, file] of files.entries()) {
-        setProgress({ i: i + 1, n: files.length, pct: 0 });
-        const fd = new FormData();
-        fd.append("file", file);
-        if (cwd) fd.append("folder_id", String(cwd));
-        for (const [k, v] of Object.entries(f)) if (v && !(k === "name" && files.length > 1)) fd.append(k, v);
-        try { await apiUploadProgress("/files", fd, (pct) => setProgress({ i: i + 1, n: files.length, pct })); }
-        catch (e) { errors.push(`${file.name} : ${e instanceof Error ? e.message : String(e)}`); }
-      }
-      return errors;
+    mutationFn: () => {
+      const fields = { ...f, name: files.length > 1 ? "" : f.name };
+      return uploadItems(files, cwd, fields, (i, n, pct) => setProgress({ i, n, pct }));
     },
     onSuccess: (errors) => { setFailed(errors); setFiles([]); setF({ ...f, name: "", notes: "" }); qc.invalidateQueries(); },
     onSettled: () => setProgress(null),
   });
-  const pick = (list: FileList | null) => { if (list?.length) { setFiles(Array.from(list)); setFailed([]); } };
+  const pick = (items: UploadItem[]) => { if (items.length) { setFiles(items); setFailed([]); } };
+  const dirs = folderCount(files);
   const del = useMutation({ mutationFn: (id: number) => api(`/files/${id}`, "DELETE"), onSuccess: () => qc.invalidateQueries() });
   const today = new Date().toISOString().slice(0, 10);
   return (
     <>
-      <PageHeader title="Documents" subtitle="Le coffre de l'entreprise : Kbis, statuts, contrats, assurances, vidéos… PDF, images, Word, Excel jusqu'à 25 Mo ; vidéos MP4, MOV, WEBM jusqu'à 500 Mo. Plusieurs fichiers à la fois." />
+      <PageHeader title="Documents" subtitle="Le coffre de l'entreprise : Kbis, statuts, contrats, assurances, vidéos… PDF, images, Word, Excel jusqu'à 25 Mo ; vidéos MP4, MOV, WEBM jusqu'à 500 Mo. Plusieurs fichiers ou des dossiers entiers à la fois." />
       <Card className="mb-6">
         <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" onSubmit={(e) => { e.preventDefault(); if (files.length) up.mutate(); }}>
           <div className="lg:col-span-2">
             <span className="mb-1 block text-xs font-medium text-slate-700">Fichiers *</span>
-              <label onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); pick(e.dataTransfer.files); }}
+              <label onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); fromDrop(e.dataTransfer).then(pick); }}
                 className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded border-2 border-dashed px-3 py-4 text-center text-sm transition ${dragging ? "border-brand-500 bg-brand-50" : "border-slate-200 hover:border-brand-500"}`}>
-                <input type="file" multiple className="sr-only" onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
-                {files.length ? <span className="text-slate-700"><b>{files.length}</b> fichier(s) : {files.slice(0, 3).map((x) => x.name).join(", ")}{files.length > 3 && "…"} · {size(files.reduce((t, x) => t + x.size, 0))}</span>
-                  : <span className="text-slate-500">Glissez vos fichiers ici ou <span className="font-medium text-brand-600">cliquez pour choisir</span> (plusieurs possibles)</span>}
+                <input type="file" multiple className="sr-only" onChange={(e) => { pick(fromInput(e.target.files)); e.target.value = ""; }} />
+                {files.length ? <span className="text-slate-700"><b>{files.length}</b> fichier(s){dirs > 0 && <> dans <b>{dirs}</b> dossier(s)</>} : {files.slice(0, 3).map((x) => [...x.dirs, x.file.name].join("/")).join(", ")}{files.length > 3 && "…"} · {size(files.reduce((t, x) => t + x.file.size, 0))}</span>
+                  : <span className="text-slate-500">Glissez des fichiers <b>ou des dossiers</b> ici, ou <span className="font-medium text-brand-600">cliquez pour choisir des fichiers</span></span>}
               </label>
+              <input ref={dirInput} type="file" className="sr-only" {...{ webkitdirectory: "", directory: "" }} onChange={(e) => { pick(fromInput(e.target.files)); e.target.value = ""; }} />
+              <button type="button" className="mt-1 text-xs font-medium text-brand-600 hover:underline" onClick={() => dirInput.current?.click()}>📁 Choisir un dossier entier…</button>
           </div>
-          <Field label="Nom affiché" hint={files.length > 1 ? "Plusieurs fichiers : chacun garde son nom" : undefined}><input value={f.name} disabled={files.length > 1} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder={files[0]?.name} /></Field>
+          <Field label="Nom affiché" hint={files.length > 1 ? "Plusieurs fichiers : chacun garde son nom" : undefined}><input value={f.name} disabled={files.length > 1} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder={files[0]?.file.name} /></Field>
           <Field label="Catégorie"><select value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}>{CATS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
           <Field label="Société liée"><select value={f.company_id} onChange={(e) => setF({ ...f, company_id: e.target.value })}><option value="">—</option>{companies.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></Field>
           <Field label="Date d'expiration" hint="Ex : fin de contrat, validité d'une attestation"><input type="date" value={f.expires_on} onChange={(e) => setF({ ...f, expires_on: e.target.value })} /></Field>

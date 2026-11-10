@@ -160,3 +160,24 @@ def test_client_folder_linked_to_company(client, as_role):
     names = {f["name"] for f in client.get("/api/files/folders").json()}
     assert "Beta" in names and "Prospect SA" not in names
     assert as_role("member").get(f"/api/files/clients/{beta['id']}").status_code == 403
+
+
+def test_dropped_folder_tree_is_recreated(client, as_role):
+    base = client.post("/api/files/folders", json={"name": "Projets"}).json()
+    r = client.post(
+        "/api/files/folders/path", json={"parent_id": base["id"], "path": ["Refonte", "Maquettes"]}
+    )
+    assert r.status_code == 200 and r.json()["created"] == 2
+    leaf = r.json()["id"]
+    # Même chemin (casse différente) : réutilisé, rien de créé
+    again = client.post(
+        "/api/files/folders/path", json={"parent_id": base["id"], "path": ["refonte", "maquettes"]}
+    )
+    assert again.json() == {"id": leaf, "created": 0}
+    upload(client, "Accueil", leaf)
+    tree = {f["name"]: f for f in client.get("/api/files/folders").json()}
+    assert tree["Maquettes"]["parent_id"] == tree["Refonte"]["id"] and tree["Maquettes"]["files"] == 1
+    for bad in (["..", "x"], ["  "], []):
+        assert client.post("/api/files/folders/path", json={"path": bad}).status_code in (400, 422)
+    assert client.post("/api/files/folders/path", json={"parent_id": 999, "path": ["a"]}).status_code == 404
+    assert as_role("member").post("/api/files/folders/path", json={"path": ["a"]}).status_code == 403
