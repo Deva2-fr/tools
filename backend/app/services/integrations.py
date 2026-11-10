@@ -74,25 +74,6 @@ FIELDS: list[Field] = [
         secret=True,
     ),
     Field("qonto_oauth_refresh_token", "", "qonto", secret=True, internal=True),
-    Field(
-        "gemini_api_key",
-        "Clé API Gemini (Google)",
-        "ai",
-        "aistudio.google.com > Get API key : copilote du Hub, brief, tri des mails, devis, documents",
-        secret=True,
-    ),
-    Field(
-        "gemini_model",
-        "Modèle Gemini",
-        "ai",
-        "Vide = le Flash le plus récent disponible pour votre clé (rapide, économique). Pour plus de finesse : un modèle « Pro »",
-    ),
-    Field(
-        "copilot_monthly_budget",
-        "Budget mensuel du copilote (€)",
-        "ai",
-        "Plafond de dépense estimé par mois (tous utilisateurs). Vide = 50 €. 0 = copilote désactivé.",
-    ),
     # Ma société : imprimé sur les devis, factures et notes de frais.
     Field("company_name", "Raison sociale", "company", "Ex : DEVA2"),
     Field("company_legal_form", "Forme juridique et capital", "company", "Ex : SAS au capital de 1 000 €"),

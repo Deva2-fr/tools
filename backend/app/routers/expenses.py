@@ -16,7 +16,7 @@ from app.core.security import admin_user, current_user, is_manager
 from app.models import Expense, ExpenseReceipt, Signature, User
 from app.routers.auth import audit
 from app.schemas import ExpenseIn, ExpenseOut
-from app.services import doc_ai, expense_pdf, google_drive, integrations, mileage
+from app.services import expense_pdf, google_drive, integrations, mileage
 
 router = APIRouter(prefix="/expenses", tags=["notes de frais"])
 
@@ -280,18 +280,6 @@ def list_expenses(db: Session = Depends(get_db), user: User = Depends(current_us
 def mileage_rates(_: User = Depends(current_user)):
     """Barème kilométrique, pour l'aperçu du calcul dans le formulaire."""
     return mileage.rates_table()
-
-
-@router.post("/ai-read")
-async def ai_read_receipt(
-    file: UploadFile = File(...), db: Session = Depends(get_db), _: User = Depends(current_user)
-):
-    """Lit un justificatif (PDF ou photo) et renvoie les champs à pré-remplir. Rien n'est enregistré."""
-    data = await file.read(doc_ai.MAX_BYTES + 1)
-    try:
-        return doc_ai.read_receipt(db, data, Path(file.filename or "").suffix)
-    except doc_ai.DocAIError as exc:
-        raise HTTPException(400, str(exc)) from exc
 
 
 @router.post("", response_model=ExpenseOut, status_code=201)

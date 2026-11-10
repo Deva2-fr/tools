@@ -52,7 +52,7 @@ export default function Billing() {
       {qonto.data && (
         <p className="mb-4 text-sm text-slate-500">
           {viaQonto
-            ? <>Qonto connecté{qonto.data.last_synced_at ? <> · dernière synchronisation {fmtDateTime(qonto.data.last_synced_at)}</> : " · pas encore synchronisé"} · factures et devis Qonto importés toutes les heures. Les devis peuvent aussi être préparés ici (avec l'IA) puis envoyés vers Qonto.</>
+            ? <>Qonto connecté{qonto.data.last_synced_at ? <> · dernière synchronisation {fmtDateTime(qonto.data.last_synced_at)}</> : " · pas encore synchronisé"} · factures et devis Qonto importés toutes les heures. Les devis peuvent aussi être préparés ici puis envoyés vers Qonto.</>
             : <>Vos devis et factures sont dans Qonto ? Renseignez la clé API dans <b>Paramètres → Intégrations → Banque Qonto</b> pour les importer automatiquement.</>}
           {sync.data && <span className="text-emerald-800"> · {sync.data.invoices} facture(s) et {sync.data.quotes} devis à jour.</span>}
           {sync.data?.warnings?.map((w) => <span key={w} className="block text-amber-700">{w}</span>)}

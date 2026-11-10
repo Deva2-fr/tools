@@ -1,9 +1,7 @@
-import json
 from datetime import date, timedelta
 
-from app.models import BankAccount, Company, Contact, CopilotUsage, MailMessage, Subscription, Transaction
-from app.services import integrations, links, mail_ai
-from tests.llm_fake import FakeLLM
+from app.models import BankAccount, Company, Contact, MailMessage, Subscription, Transaction
+from app.services import links
 
 
 def add_mail(db, sender, subject="Demande", tag="a_repondre", **kw):
@@ -36,30 +34,6 @@ def test_mail_linked_to_contact_or_company_domain(client, db):
     assert mails["Domaine connu"]["company_id"] == acme.id and mails["Domaine connu"]["contact_id"] is None
     assert mails["Messagerie publique"]["company_id"] is None
     assert links.domain_of("https://www.Acme.fr/contact") == "acme.fr"
-
-
-def test_ai_triage_summarizes_todo_mails(client, db, monkeypatch):
-    todo = add_mail(db, "client@acme.fr", "Devis site")
-    info = add_mail(db, "news@shop.fr", "Promo", tag="info")
-    assert client.post("/api/mail/ai-triage").status_code == 400  # pas de clé
-
-    integrations.put(db, "gemini_api_key", "AIza-test")
-    assert [m.id for m in mail_ai.pending(db)] == [todo.id]  # seulement les mails à traiter
-    fake = FakeLLM(
-        monkeypatch,
-        payload={
-            "mails": [{"id": todo.id, "summary": "Demande un devis pour un site.", "intent": "demande_devis"}]
-        },
-    )
-    assert mail_ai.analyze(db, mail_ai.pending(db)) == 1
-    sent = json.loads(fake.calls[0]["contents"][0]["parts"][0]["text"].split("Mails :\n", 1)[1])
-    assert [m["id"] for m in sent] == [todo.id]  # le mail « info » n'est pas envoyé à l'IA
-    db.refresh(todo)
-    db.refresh(info)
-    assert todo.ai_intent == "demande_devis" and todo.ai_summary and info.ai_summary == ""
-    assert db.query(CopilotUsage).count() == 1 and mail_ai.pending(db) == []
-    out = {m["subject"]: m for m in client.get("/api/mail/messages").json()}
-    assert out["Devis site"]["ai_intent"] == "demande_devis"
 
 
 def test_debits_suggested_and_added_to_subscription(client, db):

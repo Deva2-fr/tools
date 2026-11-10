@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { askCopilot } from "../copilot/Copilot";
 import { Mail, User, api } from "../api";
 import { Badge, Button, Card, Empty, ErrorMsg, Loading, Modal, PageHeader, cx, fmtDateTime } from "../ui";
 
@@ -41,11 +40,6 @@ function HtmlBody({ html, images }: { html: string; images: boolean }) {
 }
 
 /** Volet de lecture : le mail complet, lu à la demande sur le serveur. */
-const INTENTS: Record<string, string> = {
-  demande_devis: "Demande de devis", question: "Question", reclamation: "Réclamation", facture_fournisseur: "Facture fournisseur",
-  rendez_vous: "Rendez-vous", suivi_projet: "Suivi de projet", information: "Information", newsletter: "Newsletter", autre: "Autre",
-};
-
 function Reader({ id, onTag, boxName, onClose, mail }: { id: number; onTag: (tag: string) => void; boxName: string; onClose: () => void; mail?: Mail }) {
   const [mode, setMode] = useState<"html" | "text">("html");
   const [images, setImages] = useState(false);
@@ -62,16 +56,13 @@ function Reader({ id, onTag, boxName, onClose, mail }: { id: number; onTag: (tag
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <button className="text-xs font-medium text-brand-600 hover:underline" onClick={() => askCopilot(`Analyse le mail n°${id} (« ${mail?.subject ?? ""} »), fais le lien avec ce qu'on sait de l'expéditeur dans le Hub et propose les actions utiles.`)}>✨ Copilote</button>
           {c?.web_link && <a className="text-xs font-medium text-brand-600" href={c.web_link} target="_blank" rel="noreferrer noopener">Répondre dans le webmail ↗</a>}
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-        {(mail?.company_id || mail?.ai_summary) && (
+        {mail?.company_id && (
           <div className="mb-4 flex flex-wrap items-center gap-2 rounded-md bg-brand-50/50 px-3 py-2">
-            {mail?.company_id ? <Link to={`/crm/societes/${mail.company_id}`} className="rounded-full bg-white px-2.5 py-0.5 text-xs font-medium text-brand-700 ring-1 ring-brand-600/20 hover:bg-brand-100">🏢 {mail.company_name}</Link> : null}
-            {mail?.ai_intent && <Badge tone="blue">{INTENTS[mail.ai_intent] ?? mail.ai_intent}</Badge>}
-            {mail?.ai_summary && <span className="text-xs text-slate-600">✨ {mail.ai_summary}</span>}
+            <Link to={`/crm/societes/${mail.company_id}`} className="rounded-full bg-white px-2.5 py-0.5 text-xs font-medium text-brand-700 ring-1 ring-brand-600/20 hover:bg-brand-100">🏢 {mail.company_name}</Link>
           </div>
         )}
         {q.isLoading ? <Loading /> : q.error ? <ErrorMsg error={q.error} /> : c && (
@@ -156,7 +147,6 @@ export default function MailPage({ user }: { user: User }) {
     enabled: !!status.data?.connected, refetchInterval: 120_000, placeholderData: (prev) => prev,
   });
   const inval = () => qc.invalidateQueries({ predicate: (x) => x.queryKey[0] !== "mail-content" });
-  const triage = useMutation({ mutationFn: () => api<{ analyzed: number; remaining: number }>("/mail/ai-triage", "POST"), onSuccess: inval });
   const sync = useMutation({ mutationFn: () => api<{ new: number; errors: string[] }>(`/mail/sync${/^\d+$/.test(box) ? `?mailbox_id=${box}` : ""}`, "POST"), onSuccess: inval });
   const setTag = useMutation({
     mutationFn: ({ id, tag }: { id: number; tag: string }) => api(`/mail/messages/${id}/tag`, "PUT", { tag }),
@@ -213,15 +203,13 @@ export default function MailPage({ user }: { user: User }) {
         <div className="flex items-center gap-2">
           <span className="hidden text-xs text-slate-400 sm:inline">Lecture seule · actualisé toutes les 5 min</span>
           {webmail && <a className="inline-flex items-center rounded px-3 py-2 text-sm font-medium text-brand-600 ring-1 ring-slate-200 hover:bg-slate-50" href={webmail} target="_blank" rel="noreferrer noopener">Webmail ↗</a>}
-          <Button variant="ghost" busy={triage.isPending} onClick={() => triage.mutate()} title="Résume et classe par l'IA les mails à traiter (fait aussi automatiquement à chaque synchronisation)">✨ Analyser</Button>
           <Button data-tour="mail-refresh" variant="soft" busy={sync.isPending} onClick={() => sync.mutate()}>Actualiser</Button>
           {user.role === "admin" && box === "microsoft" && <Button variant="ghost" onClick={() => confirm("Déconnecter la boîte Microsoft 365 ?") && disconnect.mutate()}>Déconnecter</Button>}
         </div>
       </div>
       {sync.data?.errors?.length ? <p className="mb-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{sync.data.errors.join(" · ")}</p> : null}
       {params.get("error") && <div className="mb-3"><ErrorMsg error={params.get("error")} /></div>}
-      <ErrorMsg error={sync.error ?? triage.error} />
-      {triage.data && <p className="mb-3 text-xs text-slate-500">✨ {triage.data.analyzed} mail(s) analysé(s){triage.data.remaining ? ` · encore ${triage.data.remaining} à analyser (relancez)` : ""}.</p>}
+      <ErrorMsg error={sync.error} />
 
       <div className="grid grid-cols-1 overflow-hidden rounded-md border border-slate-200 bg-white lg:h-[calc(100vh-9rem)] lg:grid-cols-[200px_minmax(300px,380px)_1fr]">
         {/* Boîtes et filtres */}
@@ -266,7 +254,7 @@ export default function MailPage({ user }: { user: User }) {
                       <p className={cx("truncate text-sm", m.is_read ? "text-slate-600" : "font-medium text-slate-800")}>{m.subject || "(sans objet)"}</p>
                       <div className="mt-0.5 flex items-center gap-2">
                         {m.tag !== "info" && <span className="shrink-0 whitespace-nowrap"><Badge tone={TAGS[m.tag]?.tone ?? "slate"}>{TAGS[m.tag]?.label ?? m.tag}</Badge></span>}
-                        <span className="truncate text-xs text-slate-400">{!box && boxes.length > 1 && `${m.mailbox_id ? names[m.mailbox_id] : "M365"} · `}{m.company_name && <span className="font-medium text-brand-700">🏢 {m.company_name} · </span>}{m.ai_summary ? <span className="text-slate-600">✨ {m.ai_summary}</span> : m.preview}</span>
+                        <span className="truncate text-xs text-slate-400">{!box && boxes.length > 1 && `${m.mailbox_id ? names[m.mailbox_id] : "M365"} · `}{m.company_name && <span className="font-medium text-brand-700">🏢 {m.company_name} · </span>}{m.preview}</span>
                       </div>
                     </button>
                   </li>

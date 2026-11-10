@@ -13,7 +13,7 @@ from app.core.security import admin_user, current_user
 from app.models import Mailbox, MailMessage, User
 from app.routers.auth import audit
 from app.schemas import MailboxIn, MailOut, MailTagIn
-from app.services import integrations, links, llm, mail_ai, mail_imap, mailbox, outlook
+from app.services import integrations, links, mail_imap, mailbox, outlook
 
 router = APIRouter(prefix="/mail", tags=["mails"])
 
@@ -22,8 +22,6 @@ def _out(m: MailMessage, people: links.Directory | None = None) -> MailOut:
     match = people.match(m.sender_email) if people else {}
     return MailOut(
         **match,
-        ai_summary=m.ai_summary,
-        ai_intent=m.ai_intent,
         id=m.id,
         mailbox_id=m.mailbox_id,
         subject=m.subject,
@@ -307,15 +305,3 @@ def set_tag(message_id: int, body: MailTagIn, db: Session = Depends(get_db)):
     m.manual_tag = None if body.tag == "auto" else body.tag
     db.commit()
     return _out(m)
-
-
-@router.post("/ai-triage", dependencies=[Depends(current_user)])
-def ai_triage(db: Session = Depends(get_db)):
-    """Résume et classe par l'IA les mails à traiter pas encore analysés (20 par appel)."""
-    if not llm.configured(db):
-        raise HTTPException(400, "Renseignez la clé API Gemini (Paramètres > Intégrations > Assistant IA).")
-    try:
-        done = mail_ai.analyze(db, mail_ai.pending(db))
-    except llm.LLMError as exc:  # erreur du service d'IA : message lisible
-        raise HTTPException(502, f"Analyse impossible pour le moment : {str(exc)[:150]}") from exc
-    return {"analyzed": done, "remaining": len(mail_ai.pending(db, limit=500))}

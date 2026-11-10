@@ -4,7 +4,6 @@ from urllib.parse import quote
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
-from pydantic import BaseModel, Field
 from sqlalchemy import extract, select
 from sqlalchemy.orm import Session
 
@@ -14,8 +13,8 @@ from app.core.security import admin_user, manager_user
 from app.models import BillingDoc, Company, Payment, User
 from app.routers._common import csv_response
 from app.routers.auth import audit
-from app.schemas_billing import DocIn, DocOut, LineIn, PaymentIn, StatusIn
-from app.services import billing, billing_pdf, integrations, qonto, qonto_billing, qonto_oauth, quote_ai
+from app.schemas_billing import DocIn, DocOut, PaymentIn, StatusIn
+from app.services import billing, billing_pdf, integrations, qonto, qonto_billing, qonto_oauth
 
 router = APIRouter(prefix="/billing", tags=["devis & factures"], dependencies=[Depends(manager_user)])
 
@@ -118,11 +117,10 @@ def qonto_status(request: Request, db: Session = Depends(get_db)):
     return {
         "configured": qonto.is_configured(db),
         "last_synced_at": integrations.get(db, "qonto_billing_synced_at") or None,
-        # Connexion OAuth (devis) et assistant IA
+        # Connexion OAuth (devis)
         "oauth_configured": qonto_oauth.is_configured(db),
         "oauth_connected": qonto_oauth.is_connected(db),
         "redirect_uri": qonto_oauth.redirect_uri(request),
-        "ai_configured": quote_ai.is_configured(db),
     }
 
 
@@ -165,29 +163,6 @@ def qonto_disconnect(admin: User = Depends(admin_user), db: Session = Depends(ge
     qonto_oauth.disconnect(db)
     audit(db, admin.email, "qonto_oauth_disconnected", "")
     return {"ok": True}
-
-
-class ImproveIn(BaseModel):
-    instructions: str = Field("", max_length=2000)
-    title: str = ""
-    notes: str = ""
-    lines: list[LineIn] = Field(default_factory=list, max_length=200)
-
-
-@router.post("/{doc_id}/ai-improve")
-def ai_improve(
-    doc_id: int, body: ImproveIn, db: Session = Depends(get_db), user: User = Depends(manager_user)
-):
-    """Proposition de l'IA à partir du devis en cours d'édition (rien n'est enregistré)."""
-    d = _editable(_get(db, doc_id))
-    try:
-        proposal = quote_ai.improve(
-            db, d, [ln.model_dump() for ln in body.lines], body.title, body.notes, body.instructions
-        )
-    except quote_ai.AIError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    audit(db, user.email, "quote_ai_improved", str(doc_id))
-    return proposal
 
 
 @router.post("/{doc_id}/push-qonto", response_model=DocOut)

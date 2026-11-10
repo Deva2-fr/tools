@@ -13,7 +13,6 @@ from app.routers import (
     alerts,
     auth,
     billing,
-    copilot,
     crm,
     dashboard,
     expenses,
@@ -58,7 +57,6 @@ for r in (
     dashboard,
     crm,
     billing,
-    copilot,
     ops,
     public,
 ):
