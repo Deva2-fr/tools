@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Row, api } from "../api";
 import { ResourcePage, useRefOptions } from "../components";
-import { Badge, Button, Empty, ErrorMsg, Loading, Modal, cx, fmtDate, fmtMoney } from "../ui";
+import { Badge, Button, Empty, ErrorMsg, Loading, Modal, PageHeader, cx, fmtDate, fmtMoney } from "../ui";
+import { ClientContracts } from "./ClientContracts";
 import { STATUS } from "./Billing";
 
 const KINDS: [string, string][] = [["domain", "Nom de domaine"], ["hosting", "Hébergement"], ["saas", "Logiciel / SaaS"], ["insurance", "Assurance"], ["contract", "Contrat"], ["other", "Autre"]];
@@ -137,7 +138,7 @@ function Spent({ sub }: { sub: Row }) {
 
 const userRef = { endpoint: "/users/directory", label: (r: Row) => r.name };
 
-export default function Renewals() {
+function OurSubscriptions() {
   const today = new Date().toISOString().slice(0, 10);
   const users = Object.fromEntries(useRefOptions(userRef.endpoint, userRef.label));
   const [links, setLinks] = useState<Row | null>(null);
@@ -176,6 +177,21 @@ export default function Renewals() {
       rowActions={(r) => <button className="text-brand-600" onClick={() => setLinks(r)}>Dépenses liées</button>}
     />
     {links && <ExpenseLinks sub={links} onClose={() => setLinks(null)} />}
+    </>
+  );
+}
+
+/** Deux onglets : ce que Deva2 paie, et ce qu'elle refacture à ses clients (devis de renouvellement). */
+export default function Renewals() {
+  const [tab, setTab] = useState<"ours" | "clients">(() => (new URLSearchParams(location.search).get("onglet") === "clients" ? "clients" : "ours"));
+  return (
+    <>
+      <div className="mb-4 flex gap-1 overflow-x-auto border-b border-slate-200 sm:gap-2">
+        {([["ours", "Nos abonnements"], ["clients", "Contrats clients (renouvellements)"]] as const).map(([k, label]) => (
+          <button key={k} onClick={() => setTab(k)} className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium sm:px-4 ${tab === k ? "border-brand-600 text-brand-700" : "border-transparent text-slate-500 hover:text-slate-800"}`}>{label}</button>
+        ))}
+      </div>
+      {tab === "ours" ? <OurSubscriptions /> : <><PageHeader title="Contrats clients" subtitle="Hébergements, domaines, maintenance et licences refacturés : le devis de renouvellement est préparé en brouillon 30 jours avant chaque échéance." /><ClientContracts /></>}
     </>
   );
 }

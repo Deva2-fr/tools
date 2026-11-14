@@ -596,6 +596,36 @@ class CategoryRule(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+class ClientContract(Base):
+    """Contrat refacturé à un client (hébergement, domaine, maintenance, licence) : le Hub prépare
+    le devis de renouvellement en brouillon avant chaque échéance."""
+
+    __tablename__ = "client_contracts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True)
+    project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[str] = mapped_column(
+        String(20), default="hosting"
+    )  # hosting|domain|maintenance|license|other
+    unit_price: Mapped[float] = mapped_column(Numeric(12, 2, asdecimal=False), default=0)  # HT par période
+    quantity: Mapped[float] = mapped_column(Numeric(10, 2, asdecimal=False), default=1)
+    vat_rate: Mapped[float] = mapped_column(Numeric(5, 2, asdecimal=False), default=20)
+    period: Mapped[str] = mapped_column(String(10), default="yearly")  # monthly|quarterly|yearly
+    renewal_date: Mapped[date] = mapped_column(Date, index=True)  # début de la prochaine période
+    notice_days: Mapped[int] = mapped_column(Integer, default=30)  # devis préparé N jours avant
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    # Dernier devis préparé et l'échéance qu'il couvre (jamais deux devis pour la même échéance).
+    quote_id: Mapped[int | None] = mapped_column(
+        ForeignKey("billing_docs.id", ondelete="SET NULL"), nullable=True
+    )
+    quote_for: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 class Budget(Base):
     """Budget mensuel de dépenses par catégorie (alerte en cas de dépassement)."""
 

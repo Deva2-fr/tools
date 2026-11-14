@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.core.db import SessionLocal
 from app.services import (
     billing,
+    client_renewals,
     digest,
     finance,
     google_calendar,
@@ -74,6 +75,8 @@ def job_billing(db):
     log.info("Relances de factures : %d", billing.send_reminders(db))
     finance.categorize(db)  # mouvements importés par CSV ou restés sans catégorie
     log.info("Budgets dépassés : %d", finance.check_budgets(db))
+    client_renewals.roll(db)
+    log.info("Devis de renouvellement préparés : %d", len(client_renewals.prepare(db)))
 
 
 @safe("renouvellements")
