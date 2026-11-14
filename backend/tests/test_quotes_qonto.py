@@ -153,7 +153,9 @@ def test_push_quote_to_qonto(client, db, monkeypatch):
     )
     assert d["total_ht"] == 3000  # recalculé depuis les lignes renvoyées par Qonto
     # Le statut se gère dans Qonto.
-    assert client.post(f"/api/billing/{q['id']}/status", json={"status": "accepted"}).status_code == 400
+    assert (
+        client.post(f"/api/billing/{q['id']}/status", json={"status": "accepted"}).status_code == 404
+    )  # aucun statut ne se change dans le Hub
     # Devis validé dans Qonto : plus modifiable depuis le Hub.
     db.get(BillingDoc, q["id"]).status = "accepted"
     db.commit()
@@ -163,7 +165,7 @@ def test_push_quote_to_qonto(client, db, monkeypatch):
 def test_hub_quotes_are_working_drafts(client, db):
     """Devis du Hub : brouillon de travail, jamais émis ici, supprimable tant qu'il n'est pas accepté."""
     q = make_quote(client)
-    assert client.post(f"/api/billing/{q['id']}/issue").status_code == 400
+    assert client.post(f"/api/billing/{q['id']}/issue").status_code == 404  # rien ne s'émet dans le Hub
     assert client.delete(f"/api/billing/{q['id']}").status_code == 204
     old = make_quote(client, "Ancien client")
     db.get(BillingDoc, old["id"]).status = "sent"  # devis émis avant le passage par Qonto

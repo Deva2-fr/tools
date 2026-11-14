@@ -13,7 +13,7 @@ from app.core.security import admin_user, manager_user
 from app.models import BillingDoc, Company, Payment, User
 from app.routers._common import csv_response
 from app.routers.auth import audit
-from app.schemas_billing import DocIn, DocOut, PaymentIn, StatusIn
+from app.schemas_billing import DocIn, DocOut
 from app.services import billing, billing_pdf, integrations, qonto, qonto_billing, qonto_oauth
 
 router = APIRouter(prefix="/billing", tags=["devis & factures"], dependencies=[Depends(manager_user)])
@@ -33,13 +33,6 @@ def _get(db: Session, doc_id: int) -> BillingDoc:
     d = db.get(BillingDoc, doc_id)
     if not d:
         raise HTTPException(404, "Document introuvable")
-    return d
-
-
-def _local(d: BillingDoc) -> BillingDoc:
-    """Statut, paiements, transformation : réservés aux documents gérés dans le Hub."""
-    if d.provider == "qonto":
-        raise HTTPException(400, "Document Qonto : son statut et ses paiements se gèrent dans Qonto.")
     return d
 
 
@@ -243,60 +236,6 @@ def delete(doc_id: int, db: Session = Depends(get_db), user: User = Depends(mana
     db.delete(d)
     db.commit()
     audit(db, user.email, f"{d.kind}_deleted", str(doc_id))
-
-
-@router.post("/{doc_id}/issue", response_model=DocOut)
-def issue(doc_id: int, db: Session = Depends(get_db), user: User = Depends(manager_user)):
-    d = _local(_get(db, doc_id))
-    if d.kind == "quote":
-        raise HTTPException(
-            400,
-            "Les devis ne s'émettent pas dans le Hub : envoyez-le vers Qonto, "
-            "où il est numéroté puis envoyé au client.",
-        )
-    d = _guard(billing.issue, db, d)
-    audit(db, user.email, f"{d.kind}_issued", d.number or "")
-    return _out(db, d)
-
-
-@router.post("/{doc_id}/status", response_model=DocOut)
-def status(doc_id: int, body: StatusIn, db: Session = Depends(get_db), user: User = Depends(manager_user)):
-    d = _guard(billing.set_status, db, _local(_get(db, doc_id)), body.status)
-    audit(db, user.email, f"{d.kind}_{body.status}", d.number or "")
-    return _out(db, d)
-
-
-@router.post("/{doc_id}/convert", response_model=DocOut, status_code=201)
-def convert(doc_id: int, db: Session = Depends(get_db), user: User = Depends(manager_user)):
-    inv = _guard(billing.convert_to_invoice, db, _local(_get(db, doc_id)), user.email)
-    audit(db, user.email, "quote_converted", str(doc_id))
-    return _out(db, inv)
-
-
-@router.post("/{doc_id}/payments", response_model=DocOut, status_code=201)
-def add_payment(
-    doc_id: int, body: PaymentIn, db: Session = Depends(get_db), user: User = Depends(manager_user)
-):
-    d = _local(_get(db, doc_id))
-    _guard(billing.add_payment, db, d, body.paid_on, body.amount, body.method, body.note)
-    audit(db, user.email, "payment_added", f"{d.number}: {body.amount}")
-    return _out(db, d)
-
-
-@router.delete("/{doc_id}/payments/{payment_id}", response_model=DocOut)
-def delete_payment(
-    doc_id: int, payment_id: int, db: Session = Depends(get_db), user: User = Depends(manager_user)
-):
-    d = _local(_get(db, doc_id))
-    p = next((x for x in d.payments if x.id == payment_id), None)
-    if not p:
-        raise HTTPException(404)
-    d.payments.remove(p)
-    db.flush()
-    billing.refresh_payment_status(d)
-    db.commit()
-    audit(db, user.email, "payment_deleted", d.number or "")
-    return _out(db, d)
 
 
 @router.get("/{doc_id}/pdf")

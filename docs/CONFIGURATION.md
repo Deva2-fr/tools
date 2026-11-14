@@ -163,12 +163,7 @@ Réglage nécessaire (**Paramètres → Intégrations**) :
 
 **Abonnements** : chaque abonnement peut avoir un **responsable** (utilisateur du Hub : licence nominative, carte utilisée…). **Abonnements ↔ dépenses** : dans **Abonnements**, le bouton **Dépenses liées** rattache à un abonnement (hébergement, nom de domaine…) tout ce qui a été payé pour lui : **mouvements bancaires** (ex. prélèvement OVH importé de Qonto ; la liste est pré-filtrée sur le fournisseur), **notes de frais** et **factures**. La colonne **Payé (12 mois)** additionne ces dépenses et signale quand elles dépassent nettement le coût prévu.
 
-**Comment marche la facturation sans Qonto ?**
-1. *Devis & factures → + Devis* : choisissez le client, ajoutez des lignes (le total se calcule seul, TVA par taux). Enregistrez : c'est un **brouillon** modifiable, sans numéro.
-2. **Émettre** : le numéro définitif est attribué (`DEV-2026-0001`, `FAC-2026-0001`…, sans trou, par année). Une facture émise **ne peut plus être modifiée** (obligation légale) : pour corriger, on l'annule et on en crée une nouvelle.
-3. Devis accepté → **Transformer en facture** (les lignes sont recopiées).
-4. Encaissement → **Enregistrer le paiement** (paiements partiels possibles) : la facture passe « Payée » quand le solde est à zéro.
-5. Impayé : le Hub alerte à J-3 de l'échéance, puis à J+1, J+7, J+15, J+30… sur vos canaux d'alerte.
+**Règle : le Hub ne fait que des brouillons.** Les devis et factures créés dans le Hub restent des **brouillons de travail** (modifiables, supprimables, sans numéro). Le numéro officiel, la validation, l'envoi au client, l'acceptation et le suivi des paiements se font **uniquement dans Qonto** ; le Hub les affiche ensuite en lecture seule grâce à la synchronisation. Les impayés remontés de Qonto déclenchent une alerte dans le Hub à J-3 de l'échéance, puis à J+1, J+7, J+15, J+30… (la relance elle-même se fait dans Qonto).
 
 ## 9. Utilisateurs et rôles
 

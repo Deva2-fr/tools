@@ -41,10 +41,6 @@ class DocIn(BaseModel):
     lines: list[LineIn] = Field(default_factory=list, max_length=200)
 
 
-class StatusIn(BaseModel):
-    status: Literal["accepted", "refused", "cancelled", "sent"]
-
-
 class DocOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

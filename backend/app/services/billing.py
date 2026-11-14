@@ -1,4 +1,4 @@
-"""Devis & factures : totaux, numérotation continue, paiements, conversion, relances."""
+"""Devis & factures du Hub : brouillons (totaux, lignes), retards et alertes d'impayés des factures."""
 
 from collections import defaultdict
 from datetime import date, timedelta
@@ -6,12 +6,11 @@ from datetime import date, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import BillingDoc, BillingLine, Company, Counter, Payment
+from app.models import BillingDoc, BillingLine, Company
 from app.schemas_billing import DocIn, LineIn
 from app.services import integrations
 from app.services.alerts import create_alert
 
-PREFIX = {"quote": "DEV", "invoice": "FAC"}
 EPS = 0.005
 
 
@@ -36,18 +35,6 @@ def vat_breakdown(lines: list) -> list[tuple[float, float, float]]:
     return [(rate, base, round(base * rate / 100, 2)) for rate, base in sorted(by_rate.items())]
 
 
-def next_number(db: Session, kind: str, year: int) -> str:
-    """Numéro séquentiel sans trou : attribué uniquement à l'émission, par type et par année."""
-    key = f"{kind}-{year}"
-    counter = db.scalar(select(Counter).where(Counter.key == key).with_for_update())
-    if not counter:
-        counter = Counter(key=key, value=0)
-        db.add(counter)
-    counter.value += 1
-    db.flush()
-    return f"{PREFIX[kind]}-{year}-{counter.value:04d}"
-
-
 def set_lines(doc: BillingDoc, lines: list[LineIn]) -> None:
     doc.lines.clear()
     for i, ln in enumerate(lines):
@@ -56,7 +43,7 @@ def set_lines(doc: BillingDoc, lines: list[LineIn]) -> None:
 
 
 def is_editable(doc: BillingDoc) -> bool:
-    # Une facture émise est immuable (obligation légale) : on l'annule et on en refait une.
+    # Le Hub ne prépare que des brouillons ; un document déjà émis (avant cette règle) reste consultable.
     return doc.status == "draft" or (doc.kind == "quote" and doc.status == "sent")
 
 
@@ -74,7 +61,7 @@ def create_doc(db: Session, data: DocIn, user_email: str) -> BillingDoc:
 
 def update_doc(db: Session, doc: BillingDoc, data: DocIn) -> BillingDoc:
     if not is_editable(doc):
-        raise BillingError("Ce document est émis : il ne peut plus être modifié (annulez-le et recréez-le).")
+        raise BillingError("Ce document a déjà été émis : il ne peut plus être modifié ici.")
     if data.kind != doc.kind:
         raise BillingError("Le type de document ne peut pas être changé.")
     for k, v in data.model_dump(exclude={"lines", "kind"}).items():
@@ -82,86 +69,6 @@ def update_doc(db: Session, doc: BillingDoc, data: DocIn) -> BillingDoc:
     set_lines(doc, data.lines)
     db.commit()
     return doc
-
-
-def issue(db: Session, doc: BillingDoc) -> BillingDoc:
-    if doc.status != "draft":
-        raise BillingError("Ce document est déjà émis.")
-    if not doc.lines:
-        raise BillingError("Ajoutez au moins une ligne avant d'émettre.")
-    if doc.kind == "invoice" and not doc.company_id:
-        raise BillingError("Une facture doit être rattachée à un client.")
-    doc.number = next_number(db, doc.kind, doc.issue_date.year)
-    doc.status = "sent"
-    db.commit()
-    return doc
-
-
-def set_status(db: Session, doc: BillingDoc, status: str) -> BillingDoc:
-    if doc.status == "draft":
-        raise BillingError("Émettez d'abord le document.")
-    allowed = {"quote": {"accepted", "refused", "sent"}, "invoice": {"cancelled"}}[doc.kind]
-    if status not in allowed:
-        raise BillingError("Changement de statut impossible pour ce type de document.")
-    if doc.kind == "invoice" and doc.amount_paid > EPS:
-        raise BillingError("Cette facture a des paiements : impossible de l'annuler.")
-    doc.status = status
-    db.commit()
-    return doc
-
-
-def convert_to_invoice(db: Session, quote: BillingDoc, user_email: str) -> BillingDoc:
-    if quote.kind != "quote" or quote.status not in ("sent", "accepted"):
-        raise BillingError("Seul un devis émis peut être transformé en facture.")
-    existing = db.scalar(
-        select(BillingDoc).where(BillingDoc.source_quote_id == quote.id, BillingDoc.status != "cancelled")
-    )
-    if existing:
-        raise BillingError(f"Ce devis a déjà été facturé (facture n°{existing.number or existing.id}).")
-    data = DocIn(
-        kind="invoice",
-        company_id=quote.company_id,
-        contact_id=quote.contact_id,
-        opportunity_id=quote.opportunity_id,
-        title=quote.title,
-        issue_date=date.today(),
-        notes=quote.notes,
-        lines=[
-            LineIn(
-                description=ln.description,
-                quantity=ln.quantity,
-                unit_price=ln.unit_price,
-                vat_rate=ln.vat_rate,
-            )
-            for ln in quote.lines
-        ],
-    )
-    inv = create_doc(db, data, user_email)
-    inv.source_quote_id = quote.id
-    quote.status = "accepted"
-    db.commit()
-    return inv
-
-
-def refresh_payment_status(doc: BillingDoc) -> None:
-    doc.amount_paid = round(sum(float(p.amount) for p in doc.payments), 2)
-    if doc.status in ("sent", "paid"):
-        doc.status = "paid" if doc.amount_paid >= doc.total_ttc - EPS and doc.total_ttc > 0 else "sent"
-
-
-def add_payment(
-    db: Session, doc: BillingDoc, paid_on: date, amount: float, method: str, note: str
-) -> Payment:
-    if doc.kind != "invoice" or doc.status not in ("sent", "paid"):
-        raise BillingError("Les paiements s'enregistrent sur une facture émise.")
-    if amount > doc.total_ttc - doc.amount_paid + EPS:
-        raise BillingError("Le montant dépasse le reste à payer.")
-    p = Payment(paid_on=paid_on, amount=amount, method=method, note=note)
-    doc.payments.append(p)
-    db.flush()
-    refresh_payment_status(doc)
-    db.commit()
-    return p
 
 
 def remaining(doc: BillingDoc) -> float:
