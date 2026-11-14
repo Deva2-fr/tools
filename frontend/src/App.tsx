@@ -21,6 +21,7 @@ import { Employees } from "./pages/Team";
 import Profile from "./pages/Profile";
 import Time from "./pages/Time";
 import Treasury from "./pages/Treasury";
+import Finance from "./pages/Finance";
 import CompanyDetail from "./pages/crm/CompanyDetail";
 import Companies from "./pages/crm/Companies";
 import Contacts from "./pages/crm/Contacts";
@@ -38,7 +39,7 @@ const SECTIONS: { title: string; items: NavItem[] }[] = [
     { to: "/crm/pipeline", label: "Pipeline" }, { to: "/crm/taches", label: "Tâches" },
     { to: "/mails", label: "Mails" } ] },
   { title: "Finances", items: [
-    { to: "/facturation", label: "Devis & factures", manager: true }, { to: "/tresorerie", label: "Trésorerie", manager: true },
+    { to: "/facturation", label: "Devis & factures", manager: true }, { to: "/finances", label: "Finances", manager: true }, { to: "/tresorerie", label: "Trésorerie", manager: true },
     { to: "/abonnements", label: "Abonnements & contrats", manager: true }, { to: "/notes-de-frais", label: "Notes de frais" },
     { to: "/impots", label: "Impôts & TVA" } ] },
   { title: "Équipe", items: [
@@ -192,6 +193,7 @@ function Shell() {
               <Route path="/facturation/nouveau" element={<BillingEditor />} />
               <Route path="/facturation/:id" element={<BillingEditor />} />
               <Route path="/tresorerie" element={<Treasury />} />
+              <Route path="/finances" element={<Finance />} />
               <Route path="/abonnements" element={<Renewals />} />
               <Route path="/equipe/collaborateurs" element={<Employees />} />
               <Route path="/documents" element={<Documents />} />

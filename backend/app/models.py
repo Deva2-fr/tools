@@ -570,8 +570,38 @@ class Transaction(Base):
     tx_date: Mapped[date] = mapped_column(Date, index=True)
     label: Mapped[str] = mapped_column(String(300))
     amount: Mapped[float] = mapped_column(Numeric(12, 2, asdecimal=False))  # + encaissement / - décaissement
-    category: Mapped[str] = mapped_column(String(80), default="")
+    category: Mapped[str] = mapped_column(String(80), default="")  # catégorie d'origine (Qonto)
     external_id: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True)  # id Qonto
+    # Suivi financier : catégorie du Hub (règles ou choix manuel), TVA, justificatifs, facture rapprochée.
+    hub_category: Mapped[str] = mapped_column(String(80), default="", server_default="")
+    category_locked: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false())
+    operation_type: Mapped[str] = mapped_column(String(30), default="", server_default="")  # card, transfer…
+    vat_amount: Mapped[float | None] = mapped_column(Numeric(12, 2, asdecimal=False), nullable=True)
+    attachment_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    attachment_required: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false())
+    attachment_lost: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false())
+    billing_doc_id: Mapped[int | None] = mapped_column(
+        ForeignKey("billing_docs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
+
+class CategoryRule(Base):
+    """Règle de catégorisation : un libellé contenant `pattern` (sans casse) reçoit `category`."""
+
+    __tablename__ = "category_rules"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pattern: Mapped[str] = mapped_column(String(120))
+    category: Mapped[str] = mapped_column(String(80))
+    created_by: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class Budget(Base):
+    """Budget mensuel de dépenses par catégorie (alerte en cas de dépassement)."""
+
+    __tablename__ = "budgets"
+    category: Mapped[str] = mapped_column(String(80), primary_key=True)
+    monthly_amount: Mapped[float] = mapped_column(Numeric(12, 2, asdecimal=False))
 
 
 # ======================= Temps =======================
