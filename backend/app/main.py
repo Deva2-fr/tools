@@ -16,6 +16,7 @@ from app.routers import (
     crm,
     dashboard,
     expenses,
+    finance,
     integrations,
     mail,
     ops,
@@ -57,6 +58,7 @@ for r in (
     dashboard,
     crm,
     billing,
+    finance,
     ops,
     public,
 ):

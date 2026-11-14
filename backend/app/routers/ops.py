@@ -42,7 +42,7 @@ from app.schemas_ops import (
     TransactionImport,
     TransactionIn,
 )
-from app.services import links, qonto, renewals, treasury
+from app.services import finance, links, qonto, renewals, treasury
 
 router = APIRouter(dependencies=[Depends(current_user)])
 
@@ -251,6 +251,7 @@ def import_transactions(
     if not db.get(BankAccount, body.account_id):
         raise HTTPException(404, "Compte introuvable")
     res = treasury.import_csv(db, body.account_id, body.csv)
+    finance.categorize(db)
     audit(db, user.email, "transactions_imported", str(res["created"]))
     return res
 

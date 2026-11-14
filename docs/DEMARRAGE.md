@@ -180,6 +180,7 @@ Clé API NVD **gratuite** : <https://nvd.nist.gov/developers/request-an-api-key>
 | **Sociétés / Contacts** | ajoutez-les ou importez un CSV (bouton *Importer un CSV*) |
 | **Pipeline** | vos affaires en cours (glissez les cartes d'étape en étape) |
 | **Trésorerie** | + Compte avec son **solde actuel**, puis importez le CSV de votre banque (colonnes Date, Libellé, Montant) |
+| **Finances** | Vue d'ensemble (entrées / sorties sur 12 mois, résultat du mois, mois de trésorerie restants, TVA estimée), **où part l'argent** (mouvements classés automatiquement par catégorie, règles, budgets avec alerte), **rentabilité par client** (facturé, encaissé, coût du temps, marge), **justificatifs manquants**, rapprochement des encaissements et **export CSV** pour l'expert-comptable |
 | **Abonnements & contrats** | domaines (deva2.fr, formasyl.org…), hébergement, assurances, logiciels, avec **date de renouvellement** et « m'alerter N jours avant » |
 | **Impôts & TVA** | bouton *Pré-remplir l'année* puis **faites valider les dates par votre comptable** |
 | **Registre des accès** | où est chaque mot de passe (jamais le mot de passe lui-même) |

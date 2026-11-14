@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import utcnow
 from app.models import BankAccount, Transaction
-from app.services import integrations
+from app.services import finance, integrations
 
 API_URL = "https://thirdparty.qonto.com/v2"
 FIRST_SYNC_DAYS = 90  # historique récupéré à la première synchronisation
@@ -90,6 +90,18 @@ def _label(t: dict) -> str:
     return " ".join(parts)[:300]
 
 
+def _apply_details(tx: Transaction, t: dict) -> None:
+    """Infos utiles au suivi financier : type d'opération, TVA, justificatifs."""
+    tx.operation_type = str(t.get("operation_type") or "")[:30]
+    vat = t.get("vat_amount")
+    if vat is None and t.get("vat_amount_cents") is not None:
+        vat = t["vat_amount_cents"] / 100
+    tx.vat_amount = abs(float(vat)) if vat not in (None, "") else None
+    tx.attachment_count = len(t.get("attachment_ids") or [])
+    tx.attachment_required = bool(t.get("attachment_required"))
+    tx.attachment_lost = bool(t.get("attachment_lost"))
+
+
 def sync(db: Session, client: httpx.Client | None = None) -> dict:
     """Importe les nouvelles transactions et aligne le solde de chaque compte sur celui de Qonto."""
     own = client is None
@@ -97,6 +109,7 @@ def sync(db: Session, client: httpx.Client | None = None) -> dict:
     try:
         org = organization(client)
         created, accounts = 0, []
+        new_txs: list[Transaction] = []
         for acc in org.get("bank_accounts") or []:
             if acc.get("status") not in (None, "active"):
                 continue
@@ -120,22 +133,23 @@ def sync(db: Session, client: httpx.Client | None = None) -> dict:
             for t in transactions(client, acc.get("iban", ""), since):
                 tid = str(t.get("id") or t.get("transaction_id") or "")
                 when = (t.get("settled_at") or t.get("emitted_at") or "")[:10]
-                if (
-                    not tid
-                    or not when
-                    or db.scalar(select(Transaction.id).where(Transaction.external_id == tid))
-                ):
+                if not tid or not when:
                     continue
-                db.add(
-                    Transaction(
-                        account_id=account.id,
-                        tx_date=date.fromisoformat(when),
-                        label=_label(t),
-                        amount=_amount(t),
-                        category=(t.get("category") or t.get("operation_type") or "")[:80],
-                        external_id=tid,
-                    )
+                existing = db.scalar(select(Transaction).where(Transaction.external_id == tid))
+                if existing:  # justificatif ajouté depuis, TVA renseignée… : on met à jour
+                    _apply_details(existing, t)
+                    continue
+                tx = Transaction(
+                    account_id=account.id,
+                    tx_date=date.fromisoformat(when),
+                    label=_label(t),
+                    amount=_amount(t),
+                    category=(t.get("category") or t.get("operation_type") or "")[:80],
+                    external_id=tid,
                 )
+                _apply_details(tx, t)
+                db.add(tx)
+                new_txs.append(tx)
                 created += 1
             db.flush()
             # Solde réel Qonto = solde de départ + somme des mouvements connus : on recale le solde de départ.
@@ -152,6 +166,7 @@ def sync(db: Session, client: httpx.Client | None = None) -> dict:
             account.last_synced_at = utcnow()
             accounts.append({"name": account.name, "balance": balance})
         db.commit()
+        finance.categorize(db, new_txs)
         return {"accounts": accounts, "created": created}
     finally:
         if own:

@@ -10,6 +10,7 @@ from app.core.db import SessionLocal
 from app.services import (
     billing,
     digest,
+    finance,
     google_calendar,
     mailbox,
     monitoring,
@@ -71,6 +72,8 @@ def job_calendar(db):
 @safe("facturation")
 def job_billing(db):
     log.info("Relances de factures : %d", billing.send_reminders(db))
+    finance.categorize(db)  # mouvements importés par CSV ou restés sans catégorie
+    log.info("Budgets dépassés : %d", finance.check_budgets(db))
 
 
 @safe("renouvellements")
