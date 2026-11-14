@@ -18,7 +18,7 @@ from app.models import (
     User,
     Vulnerability,
 )
-from app.services import billing, outlook, treasury
+from app.services import billing, client_renewals, outlook, treasury
 
 router = APIRouter(tags=["tableau de bord"])
 
@@ -122,5 +122,6 @@ def dashboard(user: User = Depends(current_user), db: Session = Depends(get_db))
                 {"id": s.id, "name": s.name, "date": s.renewal_date, "cost": s.cost}
                 for s in renewals_soon[:5]
             ],
+            "client_renewals": client_renewals.upcoming(db, 30, today),
         }
     return data

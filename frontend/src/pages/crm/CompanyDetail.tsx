@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { Row, api } from "../../api";
 import { FormModal, defaults } from "../../components";
 import { Badge, Button, Card, Empty, ErrorMsg, Loading, PageHeader, fmtDate, fmtDateTime, fmtMoney } from "../../ui";
+import { ClientContracts } from "../ClientContracts";
 import { CompanyDocuments } from "./CompanyDocuments";
 import { CompanyLookup } from "./CompanyLookup";
 import { STAGES, companyFields, contactFields, kindLabel, kindTone, oppFields, taskFields } from "./shared";
@@ -99,6 +100,7 @@ export default function CompanyDetail() {
             <li key={m.id} className="flex items-center justify-between py-2.5"><span><b>{m.subject || "(sans objet)"}</b> <span className="text-slate-400">· {m.sender} · {fmtDateTime(m.received_at)}</span></span>
               <span className="flex items-center gap-3">{(m.tag === "a_repondre" || m.tag === "urgent") && <Badge tone="amber">À répondre</Badge>}{m.web_link && <a className="text-xs text-brand-600" href={m.web_link} target="_blank" rel="noreferrer noopener">Ouvrir ↗</a>}</span></li>))}</ul>}
         </Card>
+        {d.money_visible && <ClientContracts companyId={cid} />}
         {d.money_visible && <CompanyDocuments companyId={cid} />}
       </div>
       {modal === "company" && <FormModal title="Modifier la société" fields={companyFields} initial={c} onClose={() => setModal(null)} onSubmit={(b) => saveCompany.mutate(b)} busy={saveCompany.isPending} error={saveCompany.error} top={(patch) => <CompanyLookup onPick={patch} syncName={false} />} />}

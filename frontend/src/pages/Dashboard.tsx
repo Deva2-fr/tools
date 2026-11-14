@@ -11,7 +11,7 @@ interface Dash {
   mails_to_reply: number;
   tasks: { id: number; title: string; due_date: string | null; late: boolean }[];
   pipeline: { open_count: number; forecast: number };
-  finance: null | { invoiced_ht: number; outstanding: number; overdue: number; balance: number; renewals: { id: number; name: string; date: string; cost: number }[] };
+  finance: null | { invoiced_ht: number; outstanding: number; overdue: number; balance: number; renewals: { id: number; name: string; date: string; cost: number }[]; client_renewals: { count: number; with_quote: number; amount_ht: number } };
   taxes_upcoming: { id: number; title: string; due_date: string; days_left: number; amount: number | null }[];
 }
 
@@ -56,7 +56,13 @@ export default function Dashboard({ user }: { user: User }) {
         </Card>
         {data.finance ? (
           <Card title="Renouvellements à venir (30 j)" action={<Link to="/abonnements" className="text-xs text-brand-600">Tout voir</Link>}>
-            {data.finance.renewals.length === 0 ? <Empty>Aucun renouvellement proche.</Empty> : (
+            {data.finance.client_renewals.count > 0 && (
+              <Link to="/abonnements?onglet=clients" className="mb-3 flex items-center justify-between rounded border border-brand-600/20 bg-brand-50/50 px-3 py-2 text-sm hover:bg-brand-50">
+                <span><b>{data.finance.client_renewals.count}</b> contrat(s) client à renouveler · {fmtMoney(data.finance.client_renewals.amount_ht)} HT</span>
+                <span className={data.finance.client_renewals.with_quote < data.finance.client_renewals.count ? "text-amber-700" : "text-emerald-800"}>{data.finance.client_renewals.with_quote}/{data.finance.client_renewals.count} devis prêts</span>
+              </Link>
+            )}
+            {data.finance.renewals.length === 0 ? <Empty>Aucun renouvellement proche de vos abonnements.</Empty> : (
               <ul className="divide-y divide-slate-100">
                 {data.finance.renewals.map((r) => <li key={r.id} className="flex items-center justify-between py-2.5 text-sm"><span>{r.name}</span><span className="text-slate-500">{fmtDate(r.date)} · {fmtMoney(r.cost)}</span></li>)}
               </ul>
