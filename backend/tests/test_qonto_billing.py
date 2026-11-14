@@ -137,7 +137,9 @@ def test_endpoints_are_read_only(client, db, as_role, monkeypatch):
     inv = next(d for d in docs if d["number"] == "F-2026-002")
     assert inv["provider"] == "qonto" and inv["remaining"] == 600.0
     # Lecture seule dans le Hub
-    assert client.post(f"/api/billing/{inv['id']}/status", json={"status": "cancelled"}).status_code == 400
+    assert (
+        client.post(f"/api/billing/{inv['id']}/status", json={"status": "cancelled"}).status_code == 404
+    )  # aucun statut ne se change dans le Hub
     assert client.delete(f"/api/billing/{inv['id']}").status_code == 400
     assert client.get(f"/api/billing/{inv['id']}/pdf").content.startswith(b"%PDF")
 

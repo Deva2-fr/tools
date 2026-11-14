@@ -2,7 +2,7 @@ from datetime import date, timedelta
 
 from sqlalchemy import select
 
-from app.models import Alert, Subscription
+from app.models import Alert, BillingDoc, Subscription
 from app.services import digest, renewals, treasury
 
 TODAY = date.today()
@@ -87,7 +87,9 @@ def test_treasury_balance_forecast_and_import(client, db):
             "lines": [{"description": "x", "quantity": 1, "unit_price": 1000, "vat_rate": 20}],
         },
     ).json()["id"]
-    client.post(f"/api/billing/{i}/issue")
+    inv = db.get(BillingDoc, i)  # facture émise (dans Qonto) et synchronisée : attendue en trésorerie
+    inv.status, inv.number = "sent", "FAC-2026-0001"
+    db.commit()
     client.post(
         "/api/taxes",
         json={"title": "TVA", "due_date": (TODAY + timedelta(days=20)).isoformat(), "amount": 500},

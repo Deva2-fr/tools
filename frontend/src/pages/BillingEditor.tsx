@@ -32,7 +32,6 @@ export default function BillingEditor() {
 
   const [f, setF] = useState({ kind: sp.get("kind") === "quote" ? "quote" : "invoice", company_id: sp.get("company") ? Number(sp.get("company")) : (null as number | null), contact_id: null as number | null, title: "", issue_date: today(), due_date: "", notes: "" });
   const [lines, setLines] = useState<Line[]>([blankLine()]);
-  const [pay, setPay] = useState({ paid_on: today(), amount: "", method: "Virement" });
   useEffect(() => {
     const d = doc.data;
     if (!d) return;
@@ -56,15 +55,7 @@ export default function BillingEditor() {
     mutationFn: () => (isNew ? api<Row>("/billing", "POST", body()) : api<Row>(`/billing/${id}`, "PUT", body())),
     onSuccess: (r) => { inval(); if (isNew) nav(`/facturation/${r.id}`, { replace: true }); },
   });
-  const act = (path: string, method = "POST", b?: unknown) => ({ mutationFn: () => api<Row>(`/billing/${id}${path}`, method, b), onSuccess: (r: Row) => { inval(); if (path === "/convert") nav(`/facturation/${r.id}`); } });
-  const issue = useMutation({ mutationFn: async () => { await api(`/billing/${id}`, "PUT", body()); return api<Row>(`/billing/${id}/issue`, "POST"); }, onSuccess: inval });
-  const accept = useMutation(act("/status", "POST", { status: "accepted" }));
-  const refuse = useMutation(act("/status", "POST", { status: "refused" }));
-  const cancel = useMutation(act("/status", "POST", { status: "cancelled" }));
-  const convert = useMutation(act("/convert"));
   const del = useMutation({ mutationFn: () => api(`/billing/${id}`, "DELETE"), onSuccess: () => { inval(); nav("/facturation"); } });
-  const addPay = useMutation({ mutationFn: () => api(`/billing/${id}/payments`, "POST", { ...pay, amount: Number(pay.amount) }), onSuccess: () => { setPay({ ...pay, amount: "" }); inval(); } });
-  const delPay = useMutation({ mutationFn: (pid: number) => api(`/billing/${id}/payments/${pid}`, "DELETE"), onSuccess: inval });
   const pdf = useMutation({ mutationFn: () => openPdf(`/billing/${id}/pdf`) });
   const qontoSt = useQuery({ queryKey: ["billing-qonto"], queryFn: () => api<{ oauth_connected: boolean }>("/billing/qonto") });
   const push = useMutation({
@@ -75,13 +66,13 @@ export default function BillingEditor() {
   if (!isNew && !d) return doc.error ? <ErrorMsg error={doc.error} /> : <Loading />;
   const label = f.kind === "quote" ? "Devis" : "Facture";
   const setLine = (i: number, k: keyof Line, v: string | number) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
-  const errors = [push.error, save.error, issue.error, accept.error, refuse.error, cancel.error, convert.error, del.error, addPay.error, delPay.error, pdf.error].find(Boolean);
+  const errors = [push.error, save.error, del.error, pdf.error].find(Boolean);
 
   return (
     <>
       <Link to="/facturation" className="text-sm text-slate-500 hover:text-brand-600">← Devis & factures</Link>
       <PageHeader title={isNew ? `Nouveau ${label.toLowerCase()}` : `${label} ${d?.number ?? "(brouillon)"}`}
-        subtitle={d ? undefined : isQuote ? "Devis de travail : rien d'officiel ici. Préparez-le, puis envoyez-le vers Qonto en brouillon." : "Remplissez puis enregistrez : vous pourrez ensuite l'émettre (un numéro lui sera attribué)."}
+        subtitle={d ? undefined : isQuote ? "Devis de travail : rien d'officiel ici. Préparez-le, puis envoyez-le vers Qonto en brouillon." : "Facture de travail : le Hub ne prépare que des brouillons. L'émission, l'envoi au client et le paiement se gèrent dans Qonto."}
         action={d && <div className="flex flex-wrap items-center gap-2">
           <Badge tone={d.is_overdue ? "red" : STATUS[d.status]?.[1]}>{d.is_overdue ? "En retard" : STATUS[d.status]?.[0]}</Badge>
           {fromQonto ? (d.external_url ? <a className="inline-flex items-center rounded px-3 py-2 text-sm font-medium text-brand-600 ring-1 ring-slate-200 hover:bg-slate-50" href={d.external_url} target="_blank" rel="noreferrer noopener">Ouvrir dans Qonto ↗</a> : <Button variant="ghost" busy={pdf.isPending} onClick={() => pdf.mutate()}> Aperçu PDF</Button>)
@@ -89,11 +80,6 @@ export default function BillingEditor() {
           {!fromQonto && d.kind === "quote" && <>
             <Button data-tour="editor-push" busy={push.isPending} disabled={!qontoSt.data?.oauth_connected} title={qontoSt.data?.oauth_connected ? undefined : "Connectez Qonto : Paramètres → Intégrations → Banque Qonto → Se connecter avec Qonto"}
               onClick={() => confirm("Envoyer ce devis vers Qonto en brouillon ? Il y sera « en attente de validation » : rien n'est envoyé au client. Vous pourrez encore le modifier ici (les changements sont reportés dans Qonto).") && push.mutate()}>Envoyer vers Qonto (brouillon)</Button>
-          </>}
-          {!fromQonto && <>
-          {d.kind === "quote" && ["sent", "accepted"].includes(d.status) && <Button variant="soft" busy={convert.isPending} onClick={() => convert.mutate()}>→ Transformer en facture</Button>}
-          {d.kind === "quote" && d.status === "sent" && <><Button variant="soft" onClick={() => accept.mutate()}>✓ Accepté</Button><Button variant="ghost" onClick={() => refuse.mutate()}>Refusé</Button></>}
-          {d.kind === "invoice" && d.status === "sent" && !d.amount_paid && <Button variant="danger" onClick={() => confirm("Annuler cette facture ? Son numéro reste utilisé.") && cancel.mutate()}>Annuler la facture</Button>}
           </>}
           {d.deletable && <Button variant="danger" onClick={() => confirm(fromQonto ? "Supprimer ce devis dans le Hub ET dans Qonto (il n'a pas encore été validé) ?" : d.kind === "quote" ? "Supprimer ce devis ?" : "Supprimer ce brouillon ?") && del.mutate()}>Supprimer</Button>}
         </div>} />
@@ -141,7 +127,6 @@ export default function BillingEditor() {
           {editable && (
             <div className="flex flex-wrap justify-end gap-2">
               <Button data-tour="editor-save" variant={qontoEdit ? "primary" : "ghost"} busy={save.isPending} onClick={() => save.mutate()}>{qontoEdit ? "Enregistrer et mettre à jour Qonto" : isQuote ? "Enregistrer (sans envoyer à Qonto)" : "Enregistrer le brouillon"}</Button>
-              {!isNew && !isQuote && d?.status === "draft" && <Button busy={issue.isPending} onClick={() => confirm(`Émettre ce ${label.toLowerCase()} ? Un numéro définitif lui sera attribué et il ne sera plus modifiable.`) && issue.mutate()}> Émettre</Button>}
             </div>
           )}
         </div>
@@ -149,20 +134,12 @@ export default function BillingEditor() {
           {d && d.kind === "invoice" && ["sent", "paid"].includes(d.status) && (
             <Card title="Paiements">
               <p className="mb-3 text-sm">Reste à payer : <b className={d.remaining ? "text-amber-600" : "text-emerald-800"}>{fmtMoney(d.remaining)}</b></p>
-              <ul className="mb-3 space-y-1 text-sm">{d.payments.map((p: Row) => <li key={p.id} className="flex justify-between"><span>{fmtDate(p.paid_on)} · {p.method}</span><span>{fmtMoney(p.amount)} {!fromQonto && <button className="ml-1 text-xs text-red-500" onClick={() => delPay.mutate(p.id)}>✕</button>}</span></li>)}</ul>
-              {d.remaining > 0 && !fromQonto && (
-                <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); addPay.mutate(); }}>
-                  <input type="date" value={pay.paid_on} onChange={(e) => setPay({ ...pay, paid_on: e.target.value })} />
-                  <input type="number" step="0.01" required placeholder={`Montant (max ${d.remaining})`} value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} />
-                  <select value={pay.method} onChange={(e) => setPay({ ...pay, method: e.target.value })}>{["Virement", "Carte bancaire", "Chèque", "Espèces", "Prélèvement"].map((m) => <option key={m}>{m}</option>)}</select>
-                  <Button type="submit" busy={addPay.isPending} className="w-full">Enregistrer le paiement</Button>
-                  <Button type="button" variant="ghost" className="w-full" onClick={() => setPay({ ...pay, amount: String(d.remaining) })}>Solde complet</Button>
-                </form>
-              )}
+              {d.payments.length > 0 && <ul className="mb-2 space-y-1 text-sm">{d.payments.map((p: Row) => <li key={p.id} className="flex justify-between"><span>{fmtDate(p.paid_on)} · {p.method}</span><span>{fmtMoney(p.amount)}</span></li>)}</ul>}
+              <p className="text-xs text-slate-400">Les paiements se suivent dans Qonto et remontent ici automatiquement.</p>
             </Card>
           )}
           {!fromQonto && isQuote && <Card title="Aide"><p className="text-xs leading-relaxed text-slate-500">Un devis du Hub est un brouillon de travail, sans valeur officielle : préparez-le, puis envoyez-le vers Qonto. Il y sera numéroté, validé et envoyé au client. Tant qu'il est en attente dans Qonto, vous pouvez encore le modifier ici.</p></Card>}
-          {!fromQonto && !isQuote && <Card title="Aide"><p className="text-xs leading-relaxed text-slate-500">Le numéro est attribué à l'émission, sans trou, par type et par année (DEV-2026-0001, FAC-2026-0001). Les informations de votre société (SIRET, IBAN, mentions) sont à renseigner dans <b>Paramètres → Ma société</b> : elles figurent sur le PDF.</p></Card>}
+          {!fromQonto && !isQuote && <Card title="Aide"><p className="text-xs leading-relaxed text-slate-500">Une facture du Hub est un brouillon de travail : le numéro officiel, l'émission, l'envoi au client et le suivi des paiements se font dans Qonto. Les informations de votre société (SIRET, IBAN, mentions) sont à renseigner dans <b>Paramètres → Ma société</b> : elles figurent sur le PDF.</p></Card>}
         </div>
       </div>
     </>

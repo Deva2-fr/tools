@@ -2,7 +2,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from app.models import BillingDoc
+from app.models import BillingDoc, Payment
 from app.services import billing
 
 TODAY = date.today()
@@ -47,87 +47,43 @@ def test_create_totals_and_draft_has_no_number(client, acme):
     assert d["due_date"] == (TODAY + timedelta(days=30)).isoformat()
 
 
-def test_numbering_is_sequential_without_gaps(client, acme):
-    ids = [client.post("/api/billing", json=doc(company_id=acme)).json()["id"] for _ in range(3)]
-    client.delete(f"/api/billing/{ids[1]}")  # un brouillon supprimé ne consomme aucun numéro
-    n1 = client.post(f"/api/billing/{ids[0]}/issue").json()["number"]
-    n2 = client.post(f"/api/billing/{ids[2]}/issue").json()["number"]
-    y = TODAY.year
-    assert (n1, n2) == (f"FAC-{y}-0001", f"FAC-{y}-0002")
-    q = client.post("/api/billing", json=doc("quote", company_id=acme)).json()["id"]
-    assert client.post(f"/api/billing/{q}/issue").status_code == 400  # devis : officiel dans Qonto seulement
+def emitted(db, doc_id, status="sent", number="FAC-2026-0001"):
+    """Document déjà émis (avant la règle « brouillons seulement », ou synchronisé depuis Qonto)."""
+    d = db.get(BillingDoc, doc_id)
+    d.status, d.number = status, number
+    db.commit()
+    return d
 
 
-def test_issued_invoice_is_immutable_and_undeletable(client, acme):
+def test_hub_documents_stay_drafts(client, acme):
+    """Le Hub ne fait que des brouillons : ni émission, ni statut, ni paiement, ni transformation."""
     i = client.post("/api/billing", json=doc(company_id=acme)).json()["id"]
-    client.post(f"/api/billing/{i}/issue")
+    q = client.post("/api/billing", json=doc("quote", company_id=acme)).json()["id"]
+    for path, body in (
+        (f"/api/billing/{i}/issue", None),
+        (f"/api/billing/{q}/status", {"status": "accepted"}),
+        (f"/api/billing/{q}/convert", None),
+        (f"/api/billing/{i}/payments", {"paid_on": TODAY.isoformat(), "amount": 100}),
+    ):
+        assert client.post(path, json=body).status_code in (404, 405), path
+    for d in (i, q):
+        assert client.get(f"/api/billing/{d}").json()["status"] == "draft"
+    # Un brouillon reste modifiable et supprimable
+    assert (
+        client.put(f"/api/billing/{i}", json=doc(company_id=acme, title="Autre")).json()["title"] == "Autre"
+    )
+    assert client.delete(f"/api/billing/{i}").status_code == 204
+
+
+def test_emitted_document_is_read_only(client, db, acme):
+    i = client.post("/api/billing", json=doc(company_id=acme)).json()["id"]
+    emitted(db, i)
     assert client.put(f"/api/billing/{i}", json=doc(company_id=acme)).status_code == 400
     assert client.delete(f"/api/billing/{i}").status_code == 400
-    assert client.post(f"/api/billing/{i}/issue").status_code == 400  # déjà émise
-
-
-def test_cannot_issue_empty_or_clientless_invoice(client, acme):
-    e = client.post("/api/billing", json={**doc(company_id=acme), "lines": []}).json()["id"]
-    assert client.post(f"/api/billing/{e}/issue").status_code == 400
-    n = client.post("/api/billing", json=doc()).json()["id"]
-    assert client.post(f"/api/billing/{n}/issue").status_code == 400
-
-
-def test_partial_then_full_payment(client, acme):
-    i = client.post("/api/billing", json=doc(company_id=acme)).json()["id"]
-    assert (
-        client.post(
-            f"/api/billing/{i}/payments", json={"paid_on": TODAY.isoformat(), "amount": 100}
-        ).status_code
-        == 400
-    )  # brouillon
-    client.post(f"/api/billing/{i}/issue")
-    r = client.post(f"/api/billing/{i}/payments", json={"paid_on": TODAY.isoformat(), "amount": 500}).json()
-    assert r["status"] == "sent" and r["remaining"] == 700
-    assert (
-        client.post(
-            f"/api/billing/{i}/payments", json={"paid_on": TODAY.isoformat(), "amount": 800}
-        ).status_code
-        == 400
-    )
-    r = client.post(f"/api/billing/{i}/payments", json={"paid_on": TODAY.isoformat(), "amount": 700}).json()
-    assert r["status"] == "paid" and r["remaining"] == 0
-    pid = r["payments"][0]["id"]
-    r = client.delete(f"/api/billing/{i}/payments/{pid}").json()
-    assert r["status"] == "sent" and r["remaining"] == 500
-    assert (
-        client.post(f"/api/billing/{i}/status", json={"status": "cancelled"}).status_code == 400
-    )  # a des paiements
-
-
-def test_quote_to_invoice_once(client, db, acme):
-    from app.models import BillingDoc
-
-    q = client.post("/api/billing", json=doc("quote", company_id=acme)).json()["id"]
-    assert client.post(f"/api/billing/{q}/convert").status_code == 400  # devis non émis
-    db.get(BillingDoc, q).status = "sent"  # devis émis avant que les devis passent par Qonto
-    db.commit()
-    inv = client.post(f"/api/billing/{q}/convert")
-    assert inv.status_code == 201
-    body = inv.json()
-    assert (
-        body["kind"] == "invoice"
-        and body["status"] == "draft"
-        and body["source_quote_id"] == q
-        and body["total_ttc"] == 1200
-    )
-    assert client.get(f"/api/billing/{q}").json()["status"] == "accepted"
-    assert client.post(f"/api/billing/{q}/convert").status_code == 400  # déjà facturé
-    client.post(f"/api/billing/{body['id']}/issue")
-    client.post(f"/api/billing/{body['id']}/status", json={"status": "cancelled"})
-    assert (
-        client.post(f"/api/billing/{q}/convert").status_code == 201
-    )  # on peut refacturer si l'autre est annulée
 
 
 def test_pdf_renders(client, acme):
     i = client.post("/api/billing", json=doc(company_id=acme)).json()["id"]
-    client.post(f"/api/billing/{i}/issue")
     r = client.get(f"/api/billing/{i}/pdf")
     assert (
         r.status_code == 200
@@ -142,7 +98,7 @@ def test_overdue_and_reminders_without_duplicates(client, db, acme):
     i = client.post(
         "/api/billing", json=doc(company_id=acme, due_date=(TODAY - timedelta(days=8)).isoformat())
     ).json()["id"]
-    client.post(f"/api/billing/{i}/issue")
+    emitted(db, i)
     assert client.get("/api/billing?status=overdue").json()[0]["is_overdue"] is True
     assert billing.send_reminders(db, TODAY) == 1
     assert billing.send_reminders(db, TODAY) == 0  # même palier : pas de doublon
@@ -151,10 +107,12 @@ def test_overdue_and_reminders_without_duplicates(client, db, acme):
     assert billing.overdue(d, TODAY) and not billing.overdue(d, TODAY - timedelta(days=30))
 
 
-def test_summary(client, acme):
+def test_summary(client, db, acme):
     i = client.post("/api/billing", json=doc(company_id=acme)).json()["id"]
-    client.post(f"/api/billing/{i}/issue")
-    client.post(f"/api/billing/{i}/payments", json={"paid_on": TODAY.isoformat(), "amount": 200})
+    d = emitted(db, i)
+    d.payments.append(Payment(paid_on=TODAY, amount=200, method="virement", note=""))  # remonté par Qonto
+    d.amount_paid = 200
+    db.commit()
     s = client.get("/api/billing/summary").json()
     assert s["invoiced_ht"] == 1000 and s["collected"] == 200 and s["outstanding"] == 1000
 
