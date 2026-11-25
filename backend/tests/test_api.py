@@ -111,11 +111,20 @@ def test_security_webhook(client, anon):
 
 
 def test_taxes_generate_paid_recurrence_and_ics(client):
-    assert client.post("/api/taxes/generate?year=2027").json()["created"] == 6
+    assert client.post("/api/taxes/generate?year=2027").json()["created"] == 8
     titles = {x["title"]: x for x in client.get("/api/taxes").json()}
     assert titles["TVA trimestrielle – déclaration CA3 (T4 2026)"]["due_date"] == "2027-01-20"
     assert titles["TVA trimestrielle – déclaration CA3 (T3 2027)"]["due_date"] == "2027-10-20"
-    assert "Déclaration annuelle de résultats (liasse fiscale)" in titles and "CFE – avis à payer" in titles
+    assert "Comptes sociaux et liasse fiscale – impots.gouv (exercice 2026)" in titles
+    assert "CFE – avis à payer" in titles
+    ago = titles["Assemblée générale ordinaire – approbation des comptes (exercice 2026)"]
+    assert (
+        ago["due_date"] == "2027-06-30"
+        and ago["category"] == "comptes"
+        and ago["reminder_days"] == "60,30,15,7"
+    )
+    greffe = titles["Dépôt des comptes sociaux au greffe (exercice 2026)"]
+    assert greffe["due_date"] == "2027-07-31" and greffe["category"] == "comptes"
     assert not any("URSSAF" in t or "Acompte" in t for t in titles)
     assert client.post("/api/taxes/generate?year=2027").json()["created"] == 0  # idempotent
     t = client.post(
@@ -169,3 +178,61 @@ def test_company_settings_are_editable(client, db):
     assert fields["company_name"]["group"] == "company" and fields["company_name"]["value"] == "DEVA2"
     assert integrations.company_info(db)["company_siret"] == "12345678900011"
     assert integrations.terms_days(db) == 45
+
+
+def test_tax_templates_old_title_and_auto_generation(client, db):
+    from datetime import date
+
+    from app.services import taxes
+
+    # Une liasse créée sous l'ancien nom n'est pas recréée sous le nouveau
+    client.post(
+        "/api/taxes",
+        json={"title": "Déclaration annuelle de résultats (liasse fiscale)", "due_date": "2028-05-15"},
+    )
+    client.post("/api/taxes/generate?year=2028")
+    assert not any(
+        "impots.gouv" in t["title"] and t["due_date"] == "2028-05-15" for t in client.get("/api/taxes").json()
+    )
+
+    # Création automatique : seulement les échéances à venir, une fois par an ; l'année suivante dès décembre
+    assert taxes.auto_generate(db, date(2029, 9, 1)) == 2  # TVA du 20/10 et CFE du 15/12
+    deleted = next(
+        t
+        for t in client.get("/api/taxes").json()
+        if t["title"] == "CFE – avis à payer" and t["due_date"] == "2029-12-15"
+    )
+    client.delete(f"/api/taxes/{deleted['id']}")
+    assert taxes.auto_generate(db, date(2029, 9, 2)) == 0  # suppression volontaire respectée
+    assert taxes.auto_generate(db, date(2029, 12, 1)) == 8  # année 2030
+
+
+def test_undo_paid(client):
+    t = client.post(
+        "/api/taxes",
+        json={"title": "TVA mars", "category": "tva", "due_date": "2027-03-20", "recurrence": "monthly"},
+    ).json()
+    client.post(f"/api/taxes/{t['id']}/paid")
+    assert len([x for x in client.get("/api/taxes").json() if x["title"] == "TVA mars"]) == 2
+    r = client.post(f"/api/taxes/{t['id']}/unpaid").json()
+    assert r["status"] == "todo"
+    left = [x for x in client.get("/api/taxes").json() if x["title"] == "TVA mars"]
+    assert [x["id"] for x in left] == [t["id"]]  # l'occurrence suivante créée par erreur est retirée
+
+    # Occurrence suivante déjà modifiée (montant saisi) : conservée
+    client.post(f"/api/taxes/{t['id']}/paid")
+    nxt = next(x for x in client.get("/api/taxes").json() if x["title"] == "TVA mars" and x["id"] != t["id"])
+    client.put(
+        f"/api/taxes/{nxt['id']}",
+        json={
+            **{
+                k: nxt[k]
+                for k in ("title", "category", "due_date", "recurrence", "reminder_days", "notes", "status")
+            },
+            "amount": 900,
+        },
+    )
+    client.post(f"/api/taxes/{t['id']}/unpaid")
+    assert len([x for x in client.get("/api/taxes").json() if x["title"] == "TVA mars"]) == 2
+    # Annuler une échéance non payée ne change rien
+    assert client.post(f"/api/taxes/{t['id']}/unpaid").json()["status"] == "todo"

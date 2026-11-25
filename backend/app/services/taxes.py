@@ -5,11 +5,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import TaxDeadline
+from app.services import integrations
 from app.services.alerts import create_alert
 
-# Échéances types de Deva2 (société à l'IS, exercice = année civile) : TVA trimestrielle, déclaration
-# annuelle de résultats et CFE. Pas d'URSSAF ni d'acomptes d'IS. À valider avec votre comptable.
-# `months` : mois d'échéance ; `{trimestre}` est remplacé par le trimestre déclaré.
+# Échéances types de Deva2 (société à l'IS, exercice = année civile) : TVA trimestrielle, liasse
+# fiscale et comptes sociaux, AG d'approbation des comptes, dépôt au greffe et CFE. Pas d'URSSAF ni
+# d'acomptes d'IS. Dates limites légales : à valider avec votre comptable.
+# `months` : mois d'échéance ; `{trimestre}` = trimestre déclaré ; `{exercice}` = exercice clos (N-1).
 QUARTER_DECLARED = {1: "T4", 4: "T1", 7: "T2", 10: "T3"}
 TEMPLATES = [
     {
@@ -21,12 +23,35 @@ TEMPLATES = [
         "(impots.gouv > Professionnel > Mes échéances).",
     },
     {
-        "title": "Déclaration annuelle de résultats (liasse fiscale)",
+        "title": "Comptes sociaux et liasse fiscale – impots.gouv (exercice {exercice})",
+        # Ancien titre : une échéance déjà créée sous ce nom n'est pas recréée.
+        "old_title": "Déclaration annuelle de résultats (liasse fiscale)",
         "category": "is",
         "months": [5],
         "day": 15,
-        "notes": "Exercice clos au 31/12 : liasse 2065 et annexes. Pas d'acompte d'IS : l'éventuel IS "
-        "est réglé en une fois avec le relevé de solde 2572, à la même date.",
+        "notes": "Exercice clos au 31/12 : comptes sociaux (bilan, compte de résultat, annexes) transmis "
+        "avec la liasse 2065 sur impots.gouv. Pas d'acompte d'IS : l'éventuel IS est réglé en une fois "
+        "avec le relevé de solde 2572, à la même date.",
+    },
+    {
+        "title": "Assemblée générale ordinaire – approbation des comptes (exercice {exercice})",
+        "category": "comptes",
+        "months": [6],
+        "day": 30,
+        "reminder_days": "60,30,15,7",
+        "notes": "Dans les 6 mois suivant la clôture. Convoquer les associés selon les statuts (souvent "
+        "15 jours avant), préparer le rapport de gestion, puis rédiger et signer le PV d'approbation des "
+        "comptes et d'affectation du résultat.",
+    },
+    {
+        "title": "Dépôt des comptes sociaux au greffe (exercice {exercice})",
+        "category": "comptes",
+        "months": [7],
+        "day": 31,
+        "reminder_days": "30,15,7,1",
+        "notes": "Dans le mois qui suit l'AGO (deux mois si dépôt en ligne sur le guichet unique / "
+        "infogreffe) : comptes annuels, PV d'approbation et d'affectation du résultat. Une petite "
+        "entreprise peut joindre une déclaration de confidentialité des comptes.",
     },
     {
         "title": "CFE – avis à payer",
@@ -55,23 +80,31 @@ def next_due(due: date, recurrence: str) -> date | None:
     return None
 
 
-def generate_year(db: Session, year: int) -> int:
-    """Crée les échéances modèles d'une année (sans doublon)."""
+def generate_year(db: Session, year: int, not_before: date | None = None) -> int:
+    """Crée les échéances modèles d'une année (sans doublon). `not_before` : ignore les dates passées."""
     created = 0
     for t in TEMPLATES:
         for m in t["months"]:
             due = _clamp(year, m, t["day"])
+            if not_before and due < not_before:
+                continue
             title = t["title"].format(
-                trimestre=f"{QUARTER_DECLARED.get(m, '')} {year - 1 if m == 1 else year}"
+                trimestre=f"{QUARTER_DECLARED.get(m, '')} {year - 1 if m == 1 else year}", exercice=year - 1
             )
+            titles = [title] + ([t["old_title"]] if t.get("old_title") else [])
             exists = db.scalar(
-                select(TaxDeadline.id).where(TaxDeadline.title == title, TaxDeadline.due_date == due)
+                select(TaxDeadline.id).where(TaxDeadline.title.in_(titles), TaxDeadline.due_date == due)
             )
             if not exists:
                 # Chaque occurrence est créée explicitement : pas de récurrence à régénérer.
                 db.add(
                     TaxDeadline(
-                        title=title, category=t["category"], due_date=due, notes=t["notes"], recurrence="none"
+                        title=title,
+                        category=t["category"],
+                        due_date=due,
+                        notes=t["notes"],
+                        recurrence="none",
+                        reminder_days=t.get("reminder_days", "30,7,1"),
                     )
                 )
                 created += 1
@@ -96,6 +129,52 @@ def mark_paid(db: Session, deadline: TaxDeadline) -> TaxDeadline | None:
         db.add(nxt)
     db.commit()
     return nxt
+
+
+def auto_generate(db: Session, today: date | None = None) -> int:
+    """Échéances à venir de l'année en cours, et dès décembre celles de l'année suivante.
+    Une seule fois par année : une échéance supprimée volontairement n'est pas recréée."""
+    today = today or date.today()
+    created = 0
+    for year, not_before in ((today.year, today), (today.year + 1, None)):
+        if year > today.year and today.month != 12:
+            continue
+        key = f"taxes_auto_generated_{year}"
+        if integrations.get(db, key):
+            continue
+        created += generate_year(db, year, not_before=not_before)
+        integrations.put(db, key, today.isoformat())
+    return created
+
+
+def _next_occurrence(db: Session, deadline: TaxDeadline) -> TaxDeadline | None:
+    """Occurrence suivante créée automatiquement par « c'est payé », si personne n'y a touché."""
+    due = next_due(deadline.due_date, deadline.recurrence)
+    if due is None:
+        return None
+    return db.scalar(
+        select(TaxDeadline).where(
+            TaxDeadline.title == deadline.title,
+            TaxDeadline.due_date == due,
+            TaxDeadline.recurrence == deadline.recurrence,
+            TaxDeadline.status == "todo",
+            TaxDeadline.amount.is_(None),
+        )
+    )
+
+
+def mark_unpaid(db: Session, deadline: TaxDeadline) -> int | None:
+    """Annule un « c'est payé » : l'échéance repasse à faire et l'occurrence suivante créée
+    automatiquement est supprimée. Renvoie l'id supprimé (pour Google Agenda), sinon None."""
+    if deadline.status != "paid":
+        return None
+    deadline.status = "todo"
+    removed = None
+    if deadline.recurrence != "none" and (nxt := _next_occurrence(db, deadline)):
+        removed = nxt.id
+        db.delete(nxt)
+    db.commit()
+    return removed
 
 
 def send_reminders(db: Session, today: date | None = None) -> int:
