@@ -61,6 +61,7 @@ def job_mail(db):
 
 @safe("echeances")
 def job_taxes(db):
+    log.info("Échéances créées automatiquement : %d", taxes.auto_generate(db))
     log.info("Rappels d'échéances envoyés : %d", taxes.send_reminders(db))
 
 

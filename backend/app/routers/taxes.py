@@ -86,6 +86,19 @@ def paid(tax_id: int, db: Session = Depends(get_db)):
     return _out(t)
 
 
+@router.post("/{tax_id}/unpaid", response_model=TaxOut)
+def unpaid(tax_id: int, db: Session = Depends(get_db)):
+    """Annule « c'est payé » (clic par erreur) ; l'occurrence suivante créée automatiquement est retirée."""
+    t = db.get(TaxDeadline, tax_id)
+    if not t:
+        raise HTTPException(404)
+    removed = taxes.mark_unpaid(db, t)
+    _to_calendar(db, google_calendar.push, t)
+    if removed:
+        _to_calendar(db, google_calendar.remove, removed)
+    return _out(t)
+
+
 @router.post("/generate")
 def generate(year: int | None = None, db: Session = Depends(get_db)):
     """Crée les échéances types de l'année (TVA, IS, CFE…) — à vérifier avec votre comptable."""

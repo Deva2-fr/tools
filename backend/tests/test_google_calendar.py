@@ -100,8 +100,8 @@ def test_choose_calendar_and_sync_deadlines(client, db, monkeypatch):
     assert google_calendar.event_id(t2["id"]) not in fake.events
     # Pré-remplissage d'une année : tout est envoyé
     client.post("/api/taxes/generate?year=2028")
-    assert len(fake.events) == 1 + 6
-    assert client.post("/api/taxes/google-calendar/sync").json()["synced"] == 7
+    assert len(fake.events) == 1 + 8
+    assert client.post("/api/taxes/google-calendar/sync").json()["synced"] == 9
 
     # Une erreur Google ne bloque pas l'échéance, elle est signalée
     fake.shared.clear()

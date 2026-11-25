@@ -3,6 +3,8 @@ import { useState } from "react";
 import { Tax, api } from "../api";
 import { Badge, Button, Card, Empty, ErrorMsg, Field, Loading, Modal, PageHeader, fmtDateTime, fmtMoney } from "../ui";
 
+// Obligations qui se « font » plutôt qu'elles ne se paient (AG, dépôt au greffe…).
+const isDone = (t: { category: string }) => t.category === "comptes";
 const CATS: Record<string, string> = { tva: "TVA", is: "Impôt sociétés", cfe: "CFE", social: "Social", comptes: "Comptes annuels", autre: "Autre" };
 const REC: Record<string, string> = { none: "Une seule fois", monthly: "Chaque mois", quarterly: "Chaque trimestre", yearly: "Chaque année" };
 const blank = { title: "", category: "tva", due_date: "", amount: null as number | null, recurrence: "none", reminder_days: "30,7,1", notes: "", status: "todo" };
@@ -121,7 +123,13 @@ export default function Taxes() {
   const [msg, setMsg] = useState("");
   const { data, isLoading } = useQuery({ queryKey: ["taxes"], queryFn: () => api<Tax[]>("/taxes") });
   const inval = () => qc.invalidateQueries();
-  const paid = useMutation({ mutationFn: (id: number) => api(`/taxes/${id}/paid`, "POST"), onSuccess: inval });
+  // « C'est payé / fait » s'annule : bandeau « Annuler » quelques secondes, puis « Remettre à faire ».
+  const [undo, setUndo] = useState<Tax | null>(null);
+  const paid = useMutation({
+    mutationFn: (t: Tax) => api(`/taxes/${t.id}/paid`, "POST"),
+    onSuccess: (_r, t) => { setUndo(t); window.setTimeout(() => setUndo((u) => (u?.id === t.id ? null : u)), 10_000); inval(); },
+  });
+  const unpaid = useMutation({ mutationFn: (id: number) => api(`/taxes/${id}/unpaid`, "POST"), onSuccess: () => { setUndo(null); inval(); } });
   const del = useMutation({ mutationFn: (id: number) => api(`/taxes/${id}`, "DELETE"), onSuccess: inval });
   const gen = useMutation({
     mutationFn: (year: number) => api<{ created: number }>(`/taxes/generate?year=${year}`, "POST"),
@@ -141,11 +149,18 @@ export default function Taxes() {
   const year = new Date().getFullYear();
   return (
     <>
-      <PageHeader title="Impôts, TVA & déclarations" subtitle="Ne ratez plus une échéance : le Hub vous prévient avant chaque date limite."
+      <PageHeader title="Impôts, TVA & déclarations" subtitle="Ne ratez plus une échéance : TVA, impôts, AG d'approbation des comptes, dépôt au greffe… le Hub vous prévient avant chaque date limite."
         action={<div className="flex flex-wrap gap-2">
           <a data-tour="tax-ics" href="/api/taxes/calendar.ics"><Button variant="ghost" type="button"> Exporter vers mon agenda</Button></a>
           <Button onClick={() => setEdit("new")}>+ Échéance</Button></div>} />
       {msg && <p className="mb-4 rounded bg-brand-50 px-3 py-2 text-sm text-brand-700">{msg}</p>}
+      {undo && (
+        <p role="status" className="mb-4 flex flex-wrap items-center gap-3 rounded bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          « {undo.title} » marquée comme {isDone(undo) ? "faite" : "payée"}.
+          <button className="font-medium underline" disabled={unpaid.isPending} onClick={() => unpaid.mutate(undo.id)}>Annuler</button>
+        </p>
+      )}
+      <ErrorMsg error={unpaid.error ?? paid.error} />
       <GoogleCalendar />
       {late.length > 0 && (
         <p className="mb-3 rounded-md border border-red-300 bg-red-50 px-4 py-2.5 text-sm text-red-800">
@@ -171,7 +186,7 @@ export default function Taxes() {
           <div className="space-y-3 text-center">
             <Empty>Aucune échéance à venir.</Empty>
             <div className="flex flex-wrap justify-center gap-2">
-              <Button variant="soft" busy={gen.isPending} onClick={() => gen.mutate(year)}>Pré-remplir {year} (TVA, déclaration, CFE)</Button>
+              <Button variant="soft" busy={gen.isPending} onClick={() => gen.mutate(year)}>Pré-remplir {year} (TVA, impôts, AG, greffe, CFE)</Button>
               <Button variant="soft" busy={gen.isPending} onClick={() => gen.mutate(year + 1)}>Pré-remplir {year + 1}</Button>
             </div>
           </div>
@@ -189,8 +204,9 @@ export default function Taxes() {
                         <p className="text-xs text-slate-500"><span className="inline-block font-medium text-slate-700 first-letter:uppercase">{longDate(t.due_date)}</span> · {CATS[t.category] ?? t.category}{t.recurrence !== "none" && ` · ${REC[t.recurrence]}`}{t.amount != null && ` · ${fmtMoney(t.amount)}`}</p>
                       </div>
                       <div className="flex items-center gap-3">
-                        {t.status === "paid" ? <Badge tone="green">Payée</Badge> : <Badge tone={t.days_left < 0 ? "red" : t.days_left <= 7 ? "amber" : "slate"}>{countdown(t)}</Badge>}
-                        {t.status === "todo" && <Button variant="soft" onClick={() => paid.mutate(t.id)}>✓ C'est payé</Button>}
+                        {t.status === "paid" ? <Badge tone="green">{isDone(t) ? "Fait" : "Payée"}</Badge> : <Badge tone={t.days_left < 0 ? "red" : t.days_left <= 7 ? "amber" : "slate"}>{countdown(t)}</Badge>}
+                        {t.status === "todo" && <Button variant="soft" busy={paid.isPending && paid.variables?.id === t.id} onClick={() => paid.mutate(t)}>{isDone(t) ? "✓ C'est fait" : "✓ C'est payé"}</Button>}
+                        {t.status === "paid" && <button className="text-xs text-slate-600 hover:text-brand-600" onClick={() => unpaid.mutate(t.id)}>↩ Remettre à faire</button>}
                         <button className="text-xs text-brand-600" onClick={() => setEdit(t)}>Modifier</button>
                         <button className="text-xs text-red-600" onClick={() => confirm("Supprimer cette échéance ?") && del.mutate(t.id)}>Supprimer</button>
                       </div>
@@ -202,7 +218,7 @@ export default function Taxes() {
           </div>
         )}
       </Card>
-      {rows.length > 0 && <p className="mt-4 text-xs text-slate-400">Échéances pré-remplies : TVA trimestrielle, déclaration annuelle de résultats et CFE (société à l'IS, exercice au 31/12, sans acompte d'IS ni URSSAF). La date exacte de la TVA dépend de votre SIE : confirmez-la avec votre comptable puis ajustez-la ici. <button className="text-brand-600 underline" onClick={() => gen.mutate(year + 1)}>Pré-remplir {year + 1}</button></p>}
+      {rows.length > 0 && <p className="mt-4 text-xs text-slate-400">Échéances pré-remplies : TVA trimestrielle, comptes sociaux et liasse fiscale sur impots.gouv, AG d'approbation des comptes (30 juin), dépôt des comptes au greffe (31 juillet) et CFE (société à l'IS, exercice au 31/12, sans acompte d'IS ni URSSAF). La date exacte de la TVA dépend de votre SIE : confirmez-la avec votre comptable puis ajustez-la ici. <button className="text-brand-600 underline" onClick={() => gen.mutate(year + 1)}>Pré-remplir {year + 1}</button></p>}
       {edit && <TaxModal tax={edit === "new" ? undefined : edit} onClose={() => setEdit(null)} />}
     </>
   );
